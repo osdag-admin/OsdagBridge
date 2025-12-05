@@ -1,0 +1,14 @@
+[project]
+name = "osdagbridge"
+version = "0.1.0"
+description = "OsdagBridge – Unified bridge analysis and design module for Osdag."
+requires-python = ">=3.10"
+authors = [{name="Your Name", email="your@email"}]
+readme = "README.md"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+osdagbridge = "osdagbridge.cli.main:main"

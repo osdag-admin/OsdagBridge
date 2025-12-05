@@ -1,0 +1,14 @@
+{
+  "title": "BridgeModelDTO",
+  "type": "object",
+  "properties": {
+    "meta": {"type": "object"},
+    "geometry": {"type": "object"},
+    "materials": {"type": "object"},
+    "loads": {"type": "object"},
+    "codes": {"type": "object"},
+    "analysis": {"type": "object"},
+    "outputs": {"type": "object"}
+  },
+  "required": ["geometry", "materials", "codes"]
+}

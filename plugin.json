@@ -1,0 +1,5 @@
+{
+  "name": "OsdagBridge",
+  "version": "0.1",
+  "entrypoint": "osdagbridge.plugin:register_plugin"
+}

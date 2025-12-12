@@ -1,15 +1,12 @@
-from .common import *
+from osdagbridge.core.utils.common import *
 
-class BackendOsBridge:
+class FrontendData:
     """Backend for Highway Bridge Design"""
     
     def __init__(self):
         self.module = KEY_DISP_FINPLATE
         self.design_status = False
         self.design_button_status = False
-        
-    def module_name(self):
-        return KEY_DISP_FINPLATE
     
     def input_values(self):
         """Return list of input fields for the UI"""
@@ -63,27 +60,15 @@ class BackendOsBridge:
 
         return options_list
     
-    def customized_input(self):
-        """Return empty list for now"""
-        return []
-    
-    def input_value_changed(self):
-        """Return None - no dynamic changes needed"""
-        return None
-    
     def set_osdaglogger(self, key):
-        """Mock logger setup"""
+        """Logger setup"""
         print("Logger set up (mock)")
     
     def output_values(self, flag):
-        """Mock output values"""
+        """output values List"""
         return []
     
     def func_for_validation(self, design_inputs):
-        """Mock validation - always passes for testing"""
+        """Validation Function"""
         return None
-    
-    def get_3d_components(self):
-        """Mock 3D components"""
-        return []
 

@@ -1,13 +1,86 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy,
-    QPushButton, QGroupBox, QCheckBox, QScrollArea, QFrame,
+    QPushButton, QGroupBox, QCheckBox, QScrollArea, QFrame, QComboBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon
 
-from osbridge.ui.custom_buttons import DockCustomButton
-from osbridge.ui.input_dock import NoScrollComboBox, apply_field_style
+from osdagbridge.desktop.ui.utils.custom_buttons import DockCustomButton
 
+class NoScrollComboBox(QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()  # Prevent changing selection on scroll
+
+def apply_field_style(widget):
+    widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    widget.setMinimumHeight(28)
+    if isinstance(widget, QComboBox):
+        style = """
+            QComboBox{
+                padding: 1px 7px;
+                border: 1px solid black;
+                border-radius: 5px;
+                background-color: white;
+                color: black;
+            }
+            QComboBox::drop-down{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                border-left: 0px;
+            }
+            QComboBox::down-arrow{
+                image: url(:/vectors/arrow_down_light.svg);
+                width: 20px;
+                height: 20px;
+                margin-right: 8px;
+            }
+            QComboBox::down-arrow:on {
+                image: url(:/vectors/arrow_up_light.svg);
+                width: 20px;
+                height: 20px;
+                margin-right: 8px;
+            }
+            QComboBox QAbstractItemView{
+                background-color: white;
+                border: 1px solid black;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item{
+                color: black;
+                background-color: white;
+                border: none;
+                border: 1px solid white;
+                border-radius: 0;
+                padding: 2px;
+            }
+            QComboBox QAbstractItemView::item:hover{
+                border: 1px solid #90AF13;
+                background-color: #90AF13;
+                color: black;
+            }
+            QComboBox QAbstractItemView::item:selected{
+                background-color: #90AF13;
+                color: black;
+                border: 1px solid #90AF13;
+            }
+            QComboBox QAbstractItemView::item:selected:hover{
+                background-color: #90AF13;
+                color: black;
+                border: 1px solid #94b816;
+            } 
+        """
+        widget.setStyleSheet(style)
+    elif isinstance(widget, QLineEdit):
+        widget.setStyleSheet("""
+            QLineEdit {
+                padding: 1px 7px;
+                border: 1px solid #070707;
+                border-radius: 6px;
+                background-color: white;
+                color: #000000;
+                font-weight: normal;
+            }
+        """)
 
 class OutputDock(QWidget):
     """Output dock with collapsible design controls and scrollable layout."""
@@ -148,17 +221,14 @@ class OutputDock(QWidget):
         col1 = QVBoxLayout()
         for text in ["Fx", "Mx", "Dx"]:
             cb = QCheckBox(text)
-            cb.setStyleSheet("font-size: 10px; color: #333;")
             col1.addWidget(cb)
         col2 = QVBoxLayout()
         for text in ["Fy", "My", "Dy"]:
             cb = QCheckBox(text)
-            cb.setStyleSheet("font-size: 10px; color: #333;")
             col2.addWidget(cb)
         col3 = QVBoxLayout()
         for text in ["Fz", "Mz", "Dz"]:
             cb = QCheckBox(text)
-            cb.setStyleSheet("font-size: 10px; color: #333;")
             col3.addWidget(cb)
         forces_grid.addLayout(col1)
         forces_grid.addLayout(col2)
@@ -173,13 +243,11 @@ class OutputDock(QWidget):
         display_row.setSpacing(12)
         for text in ["Max", "Min"]:
             cb = QCheckBox(text)
-            cb.setStyleSheet("font-size: 10px; color: #333;")
             display_row.addWidget(cb)
         display_row.addStretch()
         results_layout.addLayout(display_row)
 
         utilization_check = QCheckBox("Controlling Utilization Ratio")
-        utilization_check.setStyleSheet("font-size: 10px; color: #333;")
         results_layout.addWidget(utilization_check)
 
         scroll_layout.addWidget(results_group)
@@ -233,13 +301,13 @@ class OutputDock(QWidget):
         struct_header.addStretch()
         
         # Collapse/expand toggle using SVG icon
-        toggle_btn = QPushButton()
-        toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        toggle_btn.setCheckable(True)
-        toggle_btn.setChecked(True)
-        toggle_btn.setIcon(QIcon(":/vectors/arrow_up_light.svg"))
-        toggle_btn.setIconSize(QSize(20, 20))
-        toggle_btn.setStyleSheet("""
+        super_toggle_btn = QPushButton()
+        super_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        super_toggle_btn.setCheckable(True)
+        super_toggle_btn.setChecked(True)
+        super_toggle_btn.setIcon(QIcon(":/vectors/arrow_up_light.svg"))
+        super_toggle_btn.setIconSize(QSize(20, 20))
+        super_toggle_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 border: none;
@@ -252,17 +320,17 @@ class OutputDock(QWidget):
                 background: transparent;
             }
         """)
-        struct_header.addWidget(toggle_btn)
+        struct_header.addWidget(super_toggle_btn)
 
         structure_layout.addLayout(struct_header)
 
         # body widget that contains everything inside the Superstructure and can be hidden
-        structure_body = QFrame()
-        structure_body.setFrameShape(QFrame.NoFrame)
-        structure_body_layout = QVBoxLayout(structure_body)
-        structure_body_layout.setContentsMargins(0, 0, 0, 0)
-        structure_body_layout.setSpacing(10)
-        structure_body.setVisible(True)
+        super_body = QFrame()
+        super_body.setFrameShape(QFrame.NoFrame)
+        super_body_layout = QVBoxLayout(super_body)
+        super_body_layout.setContentsMargins(0, 0, 0, 0)
+        super_body_layout.setSpacing(10)
+        super_body.setVisible(True)
         
         # Additional Geometry (inside Superstructure body)
         add_geo_row = QHBoxLayout()
@@ -296,7 +364,7 @@ class OutputDock(QWidget):
         """)
         modify_geo_btn.clicked.connect(self.show_additional_inputs)
         add_geo_row.addWidget(modify_geo_btn, 1)
-        structure_body_layout.addLayout(add_geo_row)
+        super_body_layout.addLayout(add_geo_row)
 
         #---------------------------------------------
 
@@ -332,18 +400,18 @@ class OutputDock(QWidget):
         """)
         modify_geo_btn.clicked.connect(self.show_additional_inputs)
         add_geo_row.addWidget(modify_geo_btn, 1)
-        structure_body_layout.addLayout(add_geo_row)
+        super_body_layout.addLayout(add_geo_row)
         
         
         # Add body to structure layout
-        structure_layout.addWidget(structure_body)
+        structure_layout.addWidget(super_body)
 
-        def _toggle_structure(checked):
+        def _toggle_superstructure(checked, body=super_body, btn=super_toggle_btn):
             # checked True means show body (open)
-            structure_body.setVisible(checked)
-            toggle_btn.setIcon(QIcon(":/vectors/arrow_up_light.svg" if checked else ":/vectors/arrow_down_light.svg"))
+            body.setVisible(checked)
+            btn.setIcon(QIcon(":/vectors/arrow_up_light.svg" if checked else ":/vectors/arrow_down_light.svg"))
 
-        toggle_btn.toggled.connect(_toggle_structure)
+        super_toggle_btn.toggled.connect(_toggle_superstructure)
         structure_group.setLayout(structure_layout)
         design_layout.addWidget(structure_group)
 

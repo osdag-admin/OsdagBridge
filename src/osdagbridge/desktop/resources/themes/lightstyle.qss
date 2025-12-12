@@ -1,0 +1,48 @@
+/* ==============================================
+   OSDAG GUI STYLESHEET - ORGANIZED BY SPECIFICITY
+   ============================================== */
+
+/* ==============================================
+   1. GLOBAL STYLES (Least Specific)
+   ============================================== */
+QMainWindow {
+    background-color: #f4f4f4;
+    border: 1px solid #90af13;
+    margin: 0px;
+    padding: 0px;
+}
+
+QToolTip {
+    background-color: #FFFFFF;
+    color: #000000;
+    border: 1px solid #90AF13;
+    padding: 2px 2px;
+    font-size: 12px;
+    border-radius: 0px;
+    qproperty-alignment: AlignVCenter;
+}
+QSplitter::handle {
+    background-color: #D0D0D0;
+}
+
+/* Global Checkbox Style */
+QCheckBox {
+    font-size: 10px;
+    color: #333;
+    spacing: 6px;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #333333;
+    border-radius: 3px;
+    background-color: #ffffff;
+}
+QCheckBox::indicator:hover {
+    border: 1px solid #555555;
+}
+QCheckBox::indicator:checked {
+    background-color: #ffffff;
+    border: 1px solid #333333;
+    image: url(:/vectors/checked.svg);
+}

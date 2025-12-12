@@ -85,10 +85,32 @@ def apply_field_style(widget):
 class OutputDock(QWidget):
     """Output dock with collapsible design controls and scrollable layout."""
 
-    def __init__(self):
+    def __init__(self, parent):
         super().__init__()
+        self.parent = parent
         self.setStyleSheet("background: transparent;")
         self.init_ui()
+
+    def toggle_output_dock(self):
+        parent = self.parent
+        if hasattr(parent, 'toggle_animate'):
+            is_collapsing = self.width() > 0
+            parent.toggle_animate(show=not is_collapsing, dock='output')
+        
+        self.toggle_btn.setText("❮" if is_collapsing else "❯")
+        self.toggle_btn.setToolTip("Show panel" if is_collapsing else "Hide panel")
+    
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Checking hasattr is only meant to prevent errors
+        if self.parent:
+            if self.width() == 0:
+                if hasattr(self.parent, 'update_docking_icons'):
+                    self.parent.update_docking_icons(output_is_active=False)
+            elif self.width() > 0:
+                if hasattr(self.parent, 'update_docking_icons'):
+                    self.parent.update_docking_icons(output_is_active=True)
+
 
     def init_ui(self):
         # Main horizontal layout to hold toggle strip and content
@@ -109,6 +131,7 @@ class OutputDock(QWidget):
         self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_btn.setFixedSize(6, 60)
         self.toggle_btn.setToolTip("Hide panel")
+        self.toggle_btn.clicked.connect(self.toggle_output_dock)
         self.toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #7a9a12;

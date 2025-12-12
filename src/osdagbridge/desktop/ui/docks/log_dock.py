@@ -18,7 +18,7 @@ class LogDock(QWidget):
     def init_ui(self):
         # Create layout for the log dock
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 0)
+        layout.setContentsMargins(5, 2, 5, 0)
         layout.setSpacing(0)
 
         # Create a top strip for "Log Window"

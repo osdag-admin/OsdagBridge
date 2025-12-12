@@ -9,60 +9,76 @@ from PySide6.QtWidgets import (
     QComboBox, QGroupBox, QFormLayout, QPushButton, QScrollArea,
     QCheckBox, QMessageBox, QSizePolicy, QSpacerItem, QStackedWidget,
     QFrame, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView,
-    QTextEdit, QDialog
+    QTextEdit, QDialog, QSizePolicy, QSizeGrip
 )
 from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 
 from osdagbridge.core.utils.common import *
+from osdagbridge.desktop.ui.utils.custom_titlebar import CustomTitleBar
+
+# =================================================================================
+#   CENTRALIZED STYLING
+# =================================================================================
 
 def get_combobox_style():
     """Return the common stylesheet for dropdowns with the SVG icon from resources."""
     return """
-        QComboBox {
-            padding: 2px 28px 2px 8px;
-            border: 1px solid #000000;
+        QComboBox{
+            padding: 1px 7px;
+            border: 1px solid black;
             border-radius: 5px;
-            background-color: #ffffff;
-            color: #000000;
-            font-size: 12px;
-            min-height: 28px;
+            background-color: white;
+            color: black;
         }
-        QComboBox:hover {
-            border: 1px solid #5d5d5d;
-        }
-        QComboBox:focus {
-            border: 1px solid #90AF13;
-        }
-        QComboBox::drop-down {
+        QComboBox::drop-down{
             subcontrol-origin: padding;
             subcontrol-position: top right;
-            width: 24px;
-            border: none;
-            margin-right: 4px;
+            border-left: 0px;
         }
-        QComboBox::down-arrow {
+        QComboBox::down-arrow{
             image: url(:/vectors/arrow_down_light.svg);
-            width: 16px;
-            height: 16px;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
         }
         QComboBox::down-arrow:on {
             image: url(:/vectors/arrow_up_light.svg);
-            width: 16px;
-            height: 16px;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
         }
-        QComboBox QAbstractItemView {
-            background-color: #ffffff;
-            border: 1px solid #000000;
+        QComboBox QAbstractItemView{
+            background-color: white;
+            border: 1px solid black;
             outline: none;
         }
-        QComboBox QAbstractItemView::item {
-            color: #000000;
-            padding: 4px 8px;
+        QComboBox QAbstractItemView::item{
+            color: black;
+            background-color: white;
+            border: none;
+            border: 1px solid white;
+            border-radius: 0;
+            padding: 2px;
         }
-        QComboBox QAbstractItemView::item:selected {
+        QComboBox QAbstractItemView::item:hover{
+            border: 1px solid #90AF13;
             background-color: #90AF13;
-            color: #000000;
+            color: black;
+        }
+        QComboBox QAbstractItemView::item:selected{
+            background-color: #90AF13;
+            color: black;
+            border: 1px solid #90AF13;
+        }
+        QComboBox QAbstractItemView::item:selected:hover{
+            background-color: #90AF13;
+            color: black;
+            border: 1px solid #94b816;
+        }
+        QComboBox:disabled{
+            background: #f1f1f1;
+            color: #666;
         }
     """
 
@@ -74,20 +90,16 @@ def get_lineedit_style():
             padding: 1px 7px;
             border: 1px solid #070707;
             border-radius: 6px;
-            background-color: #ffffff;
+            background-color: white;
             color: #000000;
-            font-size: 12px;
-            min-height: 28px;
+            font-weight: normal;
+        }
+        QLineEdit:disabled{
+            background: #f1f1f1;
+            color: #666;
         }
         QLineEdit:hover {
             border: 1px solid #5d5d5d;
-        }
-        QLineEdit:focus {
-            border: 1px solid #90AF13;
-        }
-        QLineEdit:disabled {
-            background-color: #f5f5f5;
-            color: #9b9b9b;
         }
     """
 
@@ -106,28 +118,28 @@ def create_action_button_bar(parent=None):
     frame = QFrame(parent)
     frame.setObjectName("actionButtonBar")
     frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    frame.setStyleSheet(
-        "QFrame#actionButtonBar {"
-        "    background-color: #ededed;"
-        "    border: 1px solid #c8c8c8;"
-        "    border-radius: 6px;"
-        "}"
-        "QFrame#actionButtonBar QPushButton {"
-        "    background-color: #ffffff;"
-        "    color: #2f2f2f;"
-        "    font-weight: 600;"
-        "    border: 1px solid #8c8c8c;"
-        "    border-radius: 4px;"
-        "    padding: 6px 24px;"
-        "    min-width: 120px;"
-        "}"
-        "QFrame#actionButtonBar QPushButton:hover {"
-        "    background-color: #f6f6f6;"
-        "}"
-        "QFrame#actionButtonBar QPushButton:pressed {"
-        "    background-color: #e0e0e0;"
-        "}"
-    )
+    frame.setStyleSheet("""
+        QFrame#actionButtonBar {
+            background-color: #ededed;
+            border: 1px solid #c8c8c8;
+            border-radius: 6px;
+        }
+        QFrame#actionButtonBar QPushButton {
+            background-color: #ffffff;
+            color: #2f2f2f;
+            font-weight: 600;
+            border: 1px solid #8c8c8c;
+            border-radius: 4px;
+            padding: 6px 24px;
+            min-width: 120px;
+        }
+        QFrame#actionButtonBar QPushButton:hover {
+            background-color: #f6f6f6;
+        }
+        QFrame#actionButtonBar QPushButton:pressed {
+            background-color: #e0e0e0;
+        }
+    """)
 
     layout = QHBoxLayout(frame)
     layout.setContentsMargins(22, 10, 22, 10)
@@ -164,46 +176,365 @@ SECTION_NAV_BUTTON_STYLE = """
     }
 """
 
+# =================================================================================
+#   MAIN IMPLEMENTATION
+# =================================================================================
 
-class OptimizableField(QWidget):
-    """Widget that allows selection between Optimized/Customized/All modes with input field"""
-
-    def __init__(self, label_text, parent=None):
+class AdditionalInputs(QDialog):
+    """Main dialog for Additional Inputs with tabbed interface"""
+    
+    def __init__(self, footpath_value="None", carriageway_width=7.5, parent=None):
         super().__init__(parent)
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(8)
+        self.setObjectName("AdditionalInputs")
+        self.resize(1024, 720)
+        self.setMinimumSize(900, 520)
+        self.setSizeGripEnabled(True)
+        self.footpath_value = footpath_value
+        self.carriageway_width = carriageway_width
+        self.init_ui()
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #ffffff;
+                border: 1px solid #90AF13;
+            }
+        """)
 
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(VALUES_OPTIMIZATION_MODE)
-        self.mode_combo.setMinimumWidth(140)
-        self.mode_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    def setupWrapper(self):
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowSystemMenuHint)
 
-        self.input_field = QLineEdit()
-        self.input_field.setEnabled(False)
-        self.input_field.setVisible(False)
-        self.input_field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(1, 1, 1, 1)
+        main_layout.setSpacing(0)
+        
+        self.title_bar = CustomTitleBar()
+        self.title_bar.setTitle("Additional Inputs")
+        main_layout.addWidget(self.title_bar)
+        
+        self.content_widget = QWidget(self)
+        main_layout.addWidget(self.content_widget, 1)
 
-        self.layout.addWidget(self.mode_combo)
-        self.layout.addWidget(self.input_field)
+        size_grip = QSizeGrip(self)
+        size_grip.setFixedSize(16, 16)
 
-        self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        self.on_mode_changed(self.mode_combo.currentText())
+        overlay = QHBoxLayout()
+        overlay.setContentsMargins(0, 0, 4, 4)
+        overlay.addStretch(1)
+        overlay.addWidget(size_grip, 0, Qt.AlignBottom | Qt.AlignRight)
+        main_layout.addLayout(overlay)
+    
+    def init_ui(self):
+        self.setupWrapper()
+        
+        main_layout = QVBoxLayout(self.content_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Main tab widget
+        self.tabs = QTabWidget()
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.stretching_tab_bar = QTabBar()
+        self.stretching_tab_bar.setElideMode(Qt.ElideRight)
+        self.tabs.setTabBar(self.stretching_tab_bar)
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #d1d1d1;
+                background-color: #ffffff;
+                border-radius: 6px;
+            }
+            QTabBar::tab {
+                font-weight: bold;
+                font-size: 12px;
+                background: #ffffff;
+                color: #3a3a3a;
+                border: 1px solid #d1d1d1;
+                padding: 10px 22px;
+            }
+            QTabBar::tab:selected {
+                background: #90AF13;
+                color: #ffffff;
+                border: 1px solid #90AF13;
+            }
+            QTabBar::tab:hover {
+                background: #90AF13;
+                color: #ffffff;
+            }
+        """)
+        
+        # Sub-Tab 1: Typical Section Details
+        self.typical_section_tab = TypicalSectionDetailsTab(self.footpath_value, self.carriageway_width)
+        self.tabs.addTab(self.typical_section_tab, "Typical Section Details")
+        
+        # Sub-Tab 2: Member Properties
+        self.section_properties_tab = SectionPropertiesTab()
+        self.tabs.addTab(self.section_properties_tab, "Member Properties")
+        
+        # Sub-Tab 3: Loading
+        self.loading_tab = LoadingTab()
+        self.tabs.addTab(self.loading_tab, "Loading")
+        
+        # Sub-Tab 4: Support Conditions
+        support_tab = self._build_support_conditions_tab()
+        self.tabs.addTab(support_tab, "Support Conditions")
+        
+        # Sub-Tab 5: Design Options
+        design_options_tab = self._build_design_options_tab()
+        self.tabs.addTab(design_options_tab, "Design Options")
+        
+        # Sub-Tab 6: Design Options (Cont.)
+        analysis_design_tab = self.create_placeholder_tab(
+            "Design Options (Cont.)",
+            "This tab will contain:\n\n" +
+            "• Analysis Method\n" +
+            "• Design Code Options\n" +
+            "• Safety Factors\n" +
+            "• Other Design Parameters\n\n" +
+            "Implementation in progress..."
+        )
+        self.tabs.addTab(analysis_design_tab, "Design Options (Cont.)")
+        
+        main_layout.addWidget(self.tabs)
+        
 
-    def on_mode_changed(self, text):
-        """Enable/disable input field based on selection"""
-        if text in ("Optimized", "All", "NA"):
-            self.input_field.setEnabled(False)
-            self.input_field.clear()
-            self.input_field.setVisible(False)
-        else:
-            self.input_field.setEnabled(True)
-            self.input_field.setVisible(True)
+        action_bar, self.defaults_button, self.save_button = create_action_button_bar()
+        self.defaults_button.clicked.connect(lambda: self._show_placeholder_message("Defaults"))
+        self.save_button.clicked.connect(lambda: self._show_placeholder_message("Save"))
+        main_layout.addSpacing(6)
+        main_layout.addWidget(action_bar)
 
-    def get_value(self):
-        """Returns tuple of (mode, value)"""
-        return (self.mode_combo.currentText(), self.input_field.text())
+    def _show_placeholder_message(self, action_name):
+        """Show placeholder message for action buttons"""
+        QMessageBox.information(self, action_name, "This action will be available in an upcoming update.")
 
+    def _build_support_conditions_tab(self):
+        """Build the Support Conditions tab matching reference design"""
+        widget = QWidget()
+        widget.setStyleSheet("background-color: #f5f5f5;")
+        
+        main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(12)
+
+        # Main card
+        card = QFrame()
+        card.setStyleSheet("QFrame { border: 1px solid #b2b2b2; border-radius: 10px; background-color: #ffffff; }")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(16)
+
+        label_style = "font-size: 11px; color: #3a3a3a; background: transparent; border: none;"
+        heading_style = "font-size: 12px; font-weight: 700; color: #2b2b2b; background: transparent; border: none;"
+        field_width = 120
+
+        # Support Condition section
+        support_title = QLabel("Support Condition*")
+        support_title.setStyleSheet(heading_style)
+        card_layout.addWidget(support_title)
+
+        support_grid = QGridLayout()
+        support_grid.setContentsMargins(0, 8, 0, 0)
+        support_grid.setHorizontalSpacing(12)
+        support_grid.setVerticalSpacing(12)
+        support_grid.setColumnMinimumWidth(0, 120)
+
+        # Left Support
+        lbl = QLabel("Left Support:")
+        lbl.setStyleSheet(label_style)
+        self.left_support_combo = QComboBox()
+        self.left_support_combo.addItems(["Fixed", "Pinned", "Roller"])
+        self.left_support_combo.setFixedWidth(field_width)
+        apply_field_style(self.left_support_combo)
+        support_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        support_grid.addWidget(self.left_support_combo, 0, 1, Qt.AlignLeft)
+
+        # Right Support
+        lbl = QLabel("Right Support:")
+        lbl.setStyleSheet(label_style)
+        self.right_support_combo = QComboBox()
+        self.right_support_combo.addItems(["Fixed", "Pinned", "Roller"])
+        self.right_support_combo.setFixedWidth(field_width)
+        apply_field_style(self.right_support_combo)
+        support_grid.addWidget(lbl, 1, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        support_grid.addWidget(self.right_support_combo, 1, 1, Qt.AlignLeft)
+
+        card_layout.addLayout(support_grid)
+
+        # Bearing Length section
+        bearing_title = QLabel("Bearing length*")
+        bearing_title.setStyleSheet(heading_style)
+        card_layout.addWidget(bearing_title)
+
+        bearing_grid = QGridLayout()
+        bearing_grid.setContentsMargins(0, 8, 0, 0)
+        bearing_grid.setHorizontalSpacing(12)
+        bearing_grid.setVerticalSpacing(12)
+        bearing_grid.setColumnMinimumWidth(0, 120)
+
+        lbl = QLabel("Bearing Length Value")
+        lbl.setStyleSheet(label_style)
+        self.bearing_length_input = QLineEdit()
+        self.bearing_length_input.setText("0")
+        self.bearing_length_input.setFixedWidth(field_width)
+        apply_field_style(self.bearing_length_input)
+        bearing_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        bearing_grid.addWidget(self.bearing_length_input, 0, 1, Qt.AlignLeft)
+
+        card_layout.addLayout(bearing_grid)
+        card_layout.addStretch()
+
+        main_layout.addWidget(card)
+        main_layout.addStretch()
+
+        return widget
+
+    def _build_design_options_tab(self):
+        """Build the Design Options tab matching reference design"""
+        widget = QWidget()
+        widget.setStyleSheet("background-color: #f5f5f5;")
+        
+        main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(12)
+
+        # Main card
+        card = QFrame()
+        card.setStyleSheet("QFrame { border: 1px solid #b2b2b2; border-radius: 10px; background-color: #ffffff; }")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(12)
+
+        label_style = "font-size: 11px; color: #3a3a3a; background: transparent; border: none;"
+        heading_style = "font-size: 12px; font-weight: 700; color: #2b2b2b; background: transparent; border: none;"
+        field_width = 120
+
+        # Deck Design section
+        deck_title = QLabel("Deck Design:")
+        deck_title.setStyleSheet(heading_style)
+        card_layout.addWidget(deck_title)
+
+        deck_grid = QGridLayout()
+        deck_grid.setContentsMargins(0, 4, 0, 0)
+        deck_grid.setHorizontalSpacing(12)
+        deck_grid.setVerticalSpacing(10)
+        deck_grid.setColumnMinimumWidth(0, 120)
+
+        lbl = QLabel("Reinforcement Size:")
+        lbl.setStyleSheet(label_style)
+        self.reinforcement_size_combo = QComboBox()
+        self.reinforcement_size_combo.addItems(["8 mm", "10 mm", "12 mm", "16 mm", "20 mm"])
+        self.reinforcement_size_combo.setFixedWidth(field_width)
+        apply_field_style(self.reinforcement_size_combo)
+        deck_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        deck_grid.addWidget(self.reinforcement_size_combo, 0, 1, Qt.AlignLeft)
+
+        card_layout.addLayout(deck_grid)
+
+        # Shear Studs section
+        shear_title = QLabel("Shear Studs:")
+        shear_title.setStyleSheet(heading_style)
+        card_layout.addWidget(shear_title)
+
+        shear_grid = QGridLayout()
+        shear_grid.setContentsMargins(0, 4, 0, 0)
+        shear_grid.setHorizontalSpacing(12)
+        shear_grid.setVerticalSpacing(10)
+        shear_grid.setColumnMinimumWidth(0, 120)
+
+        # Material
+        lbl = QLabel("Material:")
+        lbl.setStyleSheet(label_style)
+        self.shear_stud_material_input = QLineEdit()
+        self.shear_stud_material_input.setFixedWidth(field_width)
+        apply_field_style(self.shear_stud_material_input)
+        shear_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        shear_grid.addWidget(self.shear_stud_material_input, 0, 1, Qt.AlignLeft)
+
+        # Diameter
+        lbl = QLabel("Diameter (mm):")
+        lbl.setStyleSheet(label_style)
+        self.shear_stud_diameter_input = QLineEdit()
+        self.shear_stud_diameter_input.setFixedWidth(field_width)
+        apply_field_style(self.shear_stud_diameter_input)
+        shear_grid.addWidget(lbl, 1, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        shear_grid.addWidget(self.shear_stud_diameter_input, 1, 1, Qt.AlignLeft)
+
+        # Height
+        lbl = QLabel("Height (mm):")
+        lbl.setStyleSheet(label_style)
+        self.shear_stud_height_input = QLineEdit()
+        self.shear_stud_height_input.setFixedWidth(field_width)
+        apply_field_style(self.shear_stud_height_input)
+        shear_grid.addWidget(lbl, 2, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        shear_grid.addWidget(self.shear_stud_height_input, 2, 1, Qt.AlignLeft)
+
+        card_layout.addLayout(shear_grid)
+        card_layout.addStretch()
+
+        main_layout.addWidget(card)
+        main_layout.addStretch()
+
+        return widget
+    
+    def create_placeholder_tab(self, title, description):
+        """Create a styled placeholder tab with title and description"""
+        widget = QWidget()
+        widget.setStyleSheet("background-color: white;")
+        
+        layout = QVBoxLayout(widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(40, 40, 40, 40)
+        
+        # Icon or visual indicator
+        icon_label = QLabel("🚧")
+        icon_label.setStyleSheet("font-size: 48px;")
+        icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon_label)
+        
+        # Title
+        title_label = QLabel(title)
+        title_label.setStyleSheet("""
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        """)
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # Status
+        status_label = QLabel("Under Development")
+        status_label.setStyleSheet("""
+            font-size: 14px;
+            color: #f39c12;
+            font-weight: bold;
+            margin-bottom: 20px;
+        """)
+        status_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(status_label)
+        
+        # Description
+        desc_label = QLabel(description)
+        desc_label.setStyleSheet("""
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+        """)
+        desc_label.setAlignment(Qt.AlignCenter)
+        desc_label.setWordWrap(True)
+        desc_label.setMaximumWidth(600)
+        layout.addWidget(desc_label)
+        
+        layout.addStretch()
+        
+        return widget
+    
+    def update_footpath_value(self, footpath_value):
+        """Update footpath value across all tabs"""
+        self.footpath_value = footpath_value
+        self.typical_section_tab.update_footpath_value(footpath_value)
+
+# =================================================================================
+#   SUB COMPONENTS
+# =================================================================================
 
 class TypicalSectionDetailsTab(QWidget):
     """Sub-tab for Typical Section Details inputs"""
@@ -267,7 +598,7 @@ class TypicalSectionDetailsTab(QWidget):
         diagram_widget = QWidget()
         diagram_widget.setStyleSheet("""
             QWidget {
-                background-color: #d9d9d9;
+                background: transparent;
                 border: 1px solid #b0b0b0;
                 border-radius: 8px;
             }
@@ -342,12 +673,6 @@ class TypicalSectionDetailsTab(QWidget):
 
         input_layout.addWidget(self.input_tabs)
         main_layout.addWidget(input_container)
-
-        action_bar, self.defaults_button, self.save_button = create_action_button_bar()
-        self.defaults_button.clicked.connect(lambda: self._show_placeholder_message("Defaults"))
-        self.save_button.clicked.connect(lambda: self._show_placeholder_message("Save"))
-        main_layout.addSpacing(8)
-        main_layout.addWidget(action_bar)
 
         self.deck_thickness.textChanged.connect(self.update_footpath_thickness)
         self.recalculate_girders()
@@ -917,6 +1242,45 @@ class TypicalSectionDetailsTab(QWidget):
     def _show_placeholder_message(self, action_name):
         QMessageBox.information(self, action_name, "This action will be available in an upcoming update.")
 
+class OptimizableField(QWidget):
+    """Widget that allows selection between Optimized/Customized/All modes with input field"""
+
+    def __init__(self, label_text, parent=None):
+        super().__init__(parent)
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(8)
+
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(VALUES_OPTIMIZATION_MODE)
+        self.mode_combo.setMinimumWidth(140)
+        self.mode_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.input_field = QLineEdit()
+        self.input_field.setEnabled(False)
+        self.input_field.setVisible(False)
+        self.input_field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.layout.addWidget(self.mode_combo)
+        self.layout.addWidget(self.input_field)
+
+        self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
+        self.on_mode_changed(self.mode_combo.currentText())
+
+    def on_mode_changed(self, text):
+        """Enable/disable input field based on selection"""
+        if text in ("Optimized", "All", "NA"):
+            self.input_field.setEnabled(False)
+            self.input_field.clear()
+            self.input_field.setVisible(False)
+        else:
+            self.input_field.setEnabled(True)
+            self.input_field.setVisible(True)
+
+    def get_value(self):
+        """Returns tuple of (mode, value)"""
+        return (self.mode_combo.currentText(), self.input_field.text())
+
 class SectionPropertiesTab(QWidget):
     """Sub-tab for Section Properties with custom navigation layout."""
 
@@ -936,8 +1300,8 @@ class SectionPropertiesTab(QWidget):
         nav_bar = QWidget()
         nav_bar.setStyleSheet("background-color: white;")
         nav_bar_layout = QHBoxLayout(nav_bar)
-        nav_bar_layout.setContentsMargins(0, 0, 0, 0)
-        nav_bar_layout.setSpacing(0)
+        nav_bar_layout.setContentsMargins(6, 0, 6, 0)
+        nav_bar_layout.setSpacing(5)
         
         main_layout.addWidget(nav_bar)
 
@@ -978,7 +1342,7 @@ class SectionPropertiesTab(QWidget):
                     color: #333;
                     border: 1px solid #b0b0b0;
                     border-right: none;
-                    padding: 6px 14px;
+                    padding: 3px 10px;
                     text-align: center;
                     font-size: 10px;
                     font-weight: normal;
@@ -1014,16 +1378,11 @@ class SectionPropertiesTab(QWidget):
             self.nav_buttons[0].setChecked(True)
             self.stack.setCurrentIndex(0)
 
-        action_bar, self.defaults_button, self.save_button = create_action_button_bar()
-        main_layout.addSpacing(6)
-        main_layout.addWidget(action_bar)
-
     def switch_section(self, index):
         """Switch the stacked widget page and update navigation states."""
         self.stack.setCurrentIndex(index)
         for btn_index, button in enumerate(self.nav_buttons):
             button.setChecked(btn_index == index)
-
 
 class GirderDetailsTab(QWidget):
     """Tab for Girder Details styled to match the provided reference."""
@@ -1362,48 +1721,48 @@ class GirderDetailsTab(QWidget):
     def _create_inner_box(self):
         """Create a bordered box for grouped controls"""
         box = QFrame()
-        box.setStyleSheet(
-            "QFrame {"
-            "   border: 1px solid #b0b0b0;"
-            "   border-radius: 6px;"
-            "   background-color: #ffffff;"
-            "}"
-            "QFrame QComboBox, QFrame QLineEdit {"
-            "   border: none;"
-            "   border-bottom: 1px solid #d0d0d0;"
-            "   border-radius: 0px;"
-            "   min-height: 28px;"
-            "   padding: 4px 8px;"
-            "   background-color: #ffffff;"
-            "}"
-            "QFrame QComboBox:hover, QFrame QLineEdit:hover {"
-            "   border-bottom: 1px solid #5d5d5d;"
-            "}"
-            "QFrame QComboBox:focus, QFrame QLineEdit:focus {"
-            "   border-bottom: 1px solid #90AF13;"
-            "}"
-            "QFrame QLabel {"
-            "   border: none;"
-            "   padding: 0px;"
-            "   margin: 0px;"
-            "}"
-        )
+        box.setStyleSheet("""
+            QFrame {
+               border: 1px solid #b0b0b0;
+               border-radius: 6px;
+               background-color: #ffffff;
+            }
+            QFrame QComboBox, QFrame QLineEdit {
+               border: none;
+               border-bottom: 1px solid #d0d0d0;
+               border-radius: 0px;
+               min-height: 28px;
+               padding: 4px 8px;
+               background-color: #ffffff;
+            }
+            QFrame QComboBox:hover, QFrame QLineEdit:hover {
+               border-bottom: 1px solid #5d5d5d;
+            }
+            QFrame QComboBox:focus, QFrame QLineEdit:focus {
+               border-bottom: 1px solid #90AF13;
+            }
+            QFrame QLabel {
+               border: none;
+               padding: 0px;
+               margin: 0px;
+            }
+        """)
         return box
 
     def _create_small_label(self, text):
         """Create a smaller label for compact layouts"""
         label = QLabel(text)
-        label.setStyleSheet(
-            "QLabel {"
-            "   color: #2b2b2b;"
-            "   font-size: 11px;"
-            "   font-weight: 500;"
-            "   background: transparent;"
-            "   border: none;"
-            "   padding: 0px;"
-            "   margin: 0px;"
-            "}"
-        )
+        label.setStyleSheet("""
+            QLabel {
+               color: #2b2b2b;
+               font-size: 11px;
+               font-weight: 500;
+               background: transparent;
+               border: none;
+               padding: 0px;
+               margin: 0px;
+            }
+        """)
         label.setAutoFillBackground(False)
         return label
 
@@ -1420,7 +1779,6 @@ class GirderDetailsTab(QWidget):
         for label, widget in rows:
             label.setVisible(visible)
             widget.setVisible(visible)
-
 
 class StiffenerDetailsTab(QWidget):
     """Tab for Stiffener Details with compact layout"""
@@ -1836,7 +2194,6 @@ class CrossBracingDetailsTab(QWidget):
         self.bracing_preview_label.setText(self.bracing_section_combo.currentText())
         self.top_bracket_preview_label.setText(self.top_bracket_size_combo.currentText())
         self.bottom_bracket_preview_label.setText(self.bottom_bracket_size_combo.currentText())
-
 
 class EndDiaphragmDetailsTab(QWidget):
     """Tab for End Diaphragm Details with type-specific layouts"""
@@ -2302,7 +2659,6 @@ class EndDiaphragmDetailsTab(QWidget):
             selector.setCurrentText(target)
         self.block_type_sync = False
 
-
 class CustomVehicleDialog(QDialog):
     """Dialog for adding or editing custom live load vehicles"""
 
@@ -2313,7 +2669,7 @@ class CustomVehicleDialog(QDialog):
         self.setMinimumWidth(420)
         self.setMinimumHeight(500)
         self.setStyleSheet("""
-            QDialog { background-color: #f5f5f5; }
+            QDialog { background-color: #ffffff; }
             QLabel { color: #2b2b2b; font-size: 11px; background: transparent; }
             QLineEdit { 
                 background-color: #ffffff; 
@@ -2477,7 +2833,6 @@ class CustomVehicleDialog(QDialog):
 
         layout.addStretch()
 
-
 class LoadingTab(QWidget):
     """Loading tab with permanent load layout and load-type subtabs"""
 
@@ -2510,10 +2865,6 @@ class LoadingTab(QWidget):
         self.load_tabs.addTab(self._create_placeholder_page("Custom Load"), "Custom Load")
         self.load_tabs.addTab(self._build_load_combination_tab(), "Load Combination")
         main_layout.addWidget(self.load_tabs)
-
-        action_bar, self.defaults_button, self.save_button = create_action_button_bar()
-        main_layout.addSpacing(6)
-        main_layout.addWidget(action_bar)
 
     def _build_permanent_load_tab(self):
         page = QWidget()
@@ -3681,336 +4032,3 @@ class LoadingTab(QWidget):
         label.setStyleSheet("font-size: 12px; color: #6a6a6a;")
         layout.addWidget(label)
         return page
-
-
-class StretchingTabBar(QTabBar):
-    """Tab bar that distributes tab widths across available space."""
-
-    def tabSizeHint(self, index):
-        hint = super().tabSizeHint(index)
-        count = max(1, self.count())
-        available_width = max(self.width(), hint.width() * count)
-        stretched_width = max(hint.width(), available_width // count)
-        return QSize(stretched_width, hint.height())
-
-    def minimumTabSizeHint(self, index):
-        return self.tabSizeHint(index)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.updateGeometry()
-
-
-class AdditionalInputs(QWidget):
-    """Main widget for Additional Inputs with tabbed interface"""
-    
-    def __init__(self, footpath_value="None", carriageway_width=7.5, parent=None):
-        super().__init__(parent)
-        self.setObjectName("AdditionalInputs")
-        self.footpath_value = footpath_value
-        self.carriageway_width = carriageway_width
-        self.init_ui()
-    
-    def init_ui(self):
-        # Set explicit white background to prevent black background issue
-        self.setStyleSheet("QWidget#AdditionalInputs { background-color: #ffffff; }")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        
-        # Main tab widget
-        self.tabs = QTabWidget()
-        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.stretching_tab_bar = StretchingTabBar()
-        self.stretching_tab_bar.setElideMode(Qt.ElideRight)
-        self.tabs.setTabBar(self.stretching_tab_bar)
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #d1d1d1;
-                background-color: #ffffff;
-                border-radius: 6px;
-            }
-            QTabBar::tab {
-                font-weight: bold;
-                font-size: 12px;
-                background: #ffffff;
-                color: #3a3a3a;
-                border: 1px solid #d1d1d1;
-                padding: 10px 22px;
-            }
-            QTabBar::tab:selected {
-                background: #90AF13;
-                color: #ffffff;
-                border: 1px solid #90AF13;
-            }
-            QTabBar::tab:hover {
-                background: #90AF13;
-                color: #ffffff;
-            }
-        """)
-        
-        # Sub-Tab 1: Typical Section Details
-        self.typical_section_tab = TypicalSectionDetailsTab(self.footpath_value, self.carriageway_width)
-        self.tabs.addTab(self.typical_section_tab, "Typical Section Details")
-        
-        # Sub-Tab 2: Member Properties
-        self.section_properties_tab = SectionPropertiesTab()
-        self.tabs.addTab(self.section_properties_tab, "Member Properties")
-        
-        # Sub-Tab 3: Loading
-        self.loading_tab = LoadingTab()
-        self.tabs.addTab(self.loading_tab, "Loading")
-        
-        # Sub-Tab 4: Support Conditions
-        support_tab = self._build_support_conditions_tab()
-        self.tabs.addTab(support_tab, "Support Conditions")
-        
-        # Sub-Tab 5: Design Options
-        design_options_tab = self._build_design_options_tab()
-        self.tabs.addTab(design_options_tab, "Design Options")
-        
-        # Sub-Tab 6: Design Options (Cont.)
-        analysis_design_tab = self.create_placeholder_tab(
-            "Design Options (Cont.)",
-            "This tab will contain:\n\n" +
-            "• Analysis Method\n" +
-            "• Design Code Options\n" +
-            "• Safety Factors\n" +
-            "• Other Design Parameters\n\n" +
-            "Implementation in progress..."
-        )
-        self.tabs.addTab(analysis_design_tab, "Design Options (Cont.)")
-        
-        main_layout.addWidget(self.tabs)
-
-    def _build_support_conditions_tab(self):
-        """Build the Support Conditions tab matching reference design"""
-        widget = QWidget()
-        widget.setStyleSheet("background-color: #f5f5f5;")
-        
-        main_layout = QVBoxLayout(widget)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(12)
-
-        # Main card
-        card = QFrame()
-        card.setStyleSheet("QFrame { border: 1px solid #b2b2b2; border-radius: 10px; background-color: #ffffff; }")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(16, 16, 16, 16)
-        card_layout.setSpacing(16)
-
-        label_style = "font-size: 11px; color: #3a3a3a; background: transparent; border: none;"
-        heading_style = "font-size: 12px; font-weight: 700; color: #2b2b2b; background: transparent; border: none;"
-        field_width = 120
-
-        # Support Condition section
-        support_title = QLabel("Support Condition*")
-        support_title.setStyleSheet(heading_style)
-        card_layout.addWidget(support_title)
-
-        support_grid = QGridLayout()
-        support_grid.setContentsMargins(0, 8, 0, 0)
-        support_grid.setHorizontalSpacing(12)
-        support_grid.setVerticalSpacing(12)
-        support_grid.setColumnMinimumWidth(0, 120)
-
-        # Left Support
-        lbl = QLabel("Left Support:")
-        lbl.setStyleSheet(label_style)
-        self.left_support_combo = QComboBox()
-        self.left_support_combo.addItems(["Fixed", "Pinned", "Roller"])
-        self.left_support_combo.setFixedWidth(field_width)
-        apply_field_style(self.left_support_combo)
-        support_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        support_grid.addWidget(self.left_support_combo, 0, 1, Qt.AlignLeft)
-
-        # Right Support
-        lbl = QLabel("Right Support:")
-        lbl.setStyleSheet(label_style)
-        self.right_support_combo = QComboBox()
-        self.right_support_combo.addItems(["Fixed", "Pinned", "Roller"])
-        self.right_support_combo.setFixedWidth(field_width)
-        apply_field_style(self.right_support_combo)
-        support_grid.addWidget(lbl, 1, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        support_grid.addWidget(self.right_support_combo, 1, 1, Qt.AlignLeft)
-
-        card_layout.addLayout(support_grid)
-
-        # Bearing Length section
-        bearing_title = QLabel("Bearing length*")
-        bearing_title.setStyleSheet(heading_style)
-        card_layout.addWidget(bearing_title)
-
-        bearing_grid = QGridLayout()
-        bearing_grid.setContentsMargins(0, 8, 0, 0)
-        bearing_grid.setHorizontalSpacing(12)
-        bearing_grid.setVerticalSpacing(12)
-        bearing_grid.setColumnMinimumWidth(0, 120)
-
-        lbl = QLabel("Bearing Length Value")
-        lbl.setStyleSheet(label_style)
-        self.bearing_length_input = QLineEdit()
-        self.bearing_length_input.setText("0")
-        self.bearing_length_input.setFixedWidth(field_width)
-        apply_field_style(self.bearing_length_input)
-        bearing_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        bearing_grid.addWidget(self.bearing_length_input, 0, 1, Qt.AlignLeft)
-
-        card_layout.addLayout(bearing_grid)
-        card_layout.addStretch()
-
-        main_layout.addWidget(card)
-        main_layout.addStretch()
-
-        return widget
-
-    def _build_design_options_tab(self):
-        """Build the Design Options tab matching reference design"""
-        widget = QWidget()
-        widget.setStyleSheet("background-color: #f5f5f5;")
-        
-        main_layout = QVBoxLayout(widget)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(12)
-
-        # Main card
-        card = QFrame()
-        card.setStyleSheet("QFrame { border: 1px solid #b2b2b2; border-radius: 10px; background-color: #ffffff; }")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(16, 16, 16, 16)
-        card_layout.setSpacing(12)
-
-        label_style = "font-size: 11px; color: #3a3a3a; background: transparent; border: none;"
-        heading_style = "font-size: 12px; font-weight: 700; color: #2b2b2b; background: transparent; border: none;"
-        field_width = 120
-
-        # Deck Design section
-        deck_title = QLabel("Deck Design:")
-        deck_title.setStyleSheet(heading_style)
-        card_layout.addWidget(deck_title)
-
-        deck_grid = QGridLayout()
-        deck_grid.setContentsMargins(0, 4, 0, 0)
-        deck_grid.setHorizontalSpacing(12)
-        deck_grid.setVerticalSpacing(10)
-        deck_grid.setColumnMinimumWidth(0, 120)
-
-        lbl = QLabel("Reinforcement Size:")
-        lbl.setStyleSheet(label_style)
-        self.reinforcement_size_combo = QComboBox()
-        self.reinforcement_size_combo.addItems(["8 mm", "10 mm", "12 mm", "16 mm", "20 mm"])
-        self.reinforcement_size_combo.setFixedWidth(field_width)
-        apply_field_style(self.reinforcement_size_combo)
-        deck_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        deck_grid.addWidget(self.reinforcement_size_combo, 0, 1, Qt.AlignLeft)
-
-        card_layout.addLayout(deck_grid)
-
-        # Shear Studs section
-        shear_title = QLabel("Shear Studs:")
-        shear_title.setStyleSheet(heading_style)
-        card_layout.addWidget(shear_title)
-
-        shear_grid = QGridLayout()
-        shear_grid.setContentsMargins(0, 4, 0, 0)
-        shear_grid.setHorizontalSpacing(12)
-        shear_grid.setVerticalSpacing(10)
-        shear_grid.setColumnMinimumWidth(0, 120)
-
-        # Material
-        lbl = QLabel("Material:")
-        lbl.setStyleSheet(label_style)
-        self.shear_stud_material_input = QLineEdit()
-        self.shear_stud_material_input.setFixedWidth(field_width)
-        apply_field_style(self.shear_stud_material_input)
-        shear_grid.addWidget(lbl, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        shear_grid.addWidget(self.shear_stud_material_input, 0, 1, Qt.AlignLeft)
-
-        # Diameter
-        lbl = QLabel("Diameter (mm):")
-        lbl.setStyleSheet(label_style)
-        self.shear_stud_diameter_input = QLineEdit()
-        self.shear_stud_diameter_input.setFixedWidth(field_width)
-        apply_field_style(self.shear_stud_diameter_input)
-        shear_grid.addWidget(lbl, 1, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        shear_grid.addWidget(self.shear_stud_diameter_input, 1, 1, Qt.AlignLeft)
-
-        # Height
-        lbl = QLabel("Height (mm):")
-        lbl.setStyleSheet(label_style)
-        self.shear_stud_height_input = QLineEdit()
-        self.shear_stud_height_input.setFixedWidth(field_width)
-        apply_field_style(self.shear_stud_height_input)
-        shear_grid.addWidget(lbl, 2, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        shear_grid.addWidget(self.shear_stud_height_input, 2, 1, Qt.AlignLeft)
-
-        card_layout.addLayout(shear_grid)
-        card_layout.addStretch()
-
-        main_layout.addWidget(card)
-        main_layout.addStretch()
-
-        return widget
-    
-    def create_placeholder_tab(self, title, description):
-        """Create a styled placeholder tab with title and description"""
-        widget = QWidget()
-        widget.setStyleSheet("background-color: white;")
-        
-        layout = QVBoxLayout(widget)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setContentsMargins(40, 40, 40, 40)
-        
-        # Icon or visual indicator
-        icon_label = QLabel("🚧")
-        icon_label.setStyleSheet("font-size: 48px;")
-        icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon_label)
-        
-        # Title
-        title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            font-size: 18px;
-            font-weight: bold;
-            color: #333;
-            margin-top: 20px;
-            margin-bottom: 10px;
-        """)
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
-        
-        # Status
-        status_label = QLabel("Under Development")
-        status_label.setStyleSheet("""
-            font-size: 14px;
-            color: #f39c12;
-            font-weight: bold;
-            margin-bottom: 20px;
-        """)
-        status_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(status_label)
-        
-        # Description
-        desc_label = QLabel(description)
-        desc_label.setStyleSheet("""
-            font-size: 12px;
-            color: #666;
-            line-height: 1.6;
-        """)
-        desc_label.setAlignment(Qt.AlignCenter)
-        desc_label.setWordWrap(True)
-        desc_label.setMaximumWidth(600)
-        layout.addWidget(desc_label)
-        
-        layout.addStretch()
-        layout.addSpacing(10)
-        action_bar, _, _ = create_action_button_bar(widget)
-        layout.addWidget(action_bar)
-        
-        return widget
-    
-    def update_footpath_value(self, footpath_value):
-        """Update footpath value across all tabs"""
-        self.footpath_value = footpath_value
-        self.typical_section_tab.update_footpath_value(footpath_value)

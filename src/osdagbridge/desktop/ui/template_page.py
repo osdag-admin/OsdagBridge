@@ -65,6 +65,8 @@ class CustomWindow(QWidget):
             }
             """
         )
+        self.input_dock = None
+        self.output_dock = None
 
         self.init_ui()
 
@@ -164,7 +166,7 @@ class CustomWindow(QWidget):
         # Add Cad Model Widget
         self.cad_log_splitter.addWidget(self.cad_comp_widget)
 
-        self.logs_dock = LogDock()
+        self.logs_dock = LogDock(parent=self)
         self.logs_dock.setVisible(False)
         # log text
         self.textEdit = self.logs_dock.log_display

@@ -632,7 +632,7 @@ class InputDock(QWidget):
         self.custom_location_input = None
         self.include_median_combo = None
         self.footpath_combo = None
-        self.additional_inputs_window = None
+        self.additional_inputs = None
         self.additional_inputs_widget = None
         self.material_dialog = None
         self.additional_inputs_btn = None
@@ -1604,34 +1604,8 @@ class InputDock(QWidget):
         
         carriageway_width = self._get_effective_carriageway_width()
         
-        if self.additional_inputs_window is None or not self.additional_inputs_window.isVisible():
-            self.additional_inputs_window = QDialog(self)
-            self.additional_inputs_window.setObjectName("AdditionalInputs")
-            self.additional_inputs_window.setWindowTitle("Additional Inputs - Manual Bridge Parameter Definition")
-            self.additional_inputs_window.resize(1024, 720)
-            self.additional_inputs_window.setMinimumSize(820, 520)
-            self.additional_inputs_window.setSizeGripEnabled(True)
-            
-            layout = QVBoxLayout(self.additional_inputs_window)
-            layout.setContentsMargins(0, 0, 0, 0)
-            
-            scroll_area = QScrollArea(self.additional_inputs_window)
-            scroll_area.setWidgetResizable(True)
-            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            scroll_area.setFrameShape(QFrame.NoFrame)
-            scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-            layout.addWidget(scroll_area)
-
-            self.additional_inputs_widget = AdditionalInputs(footpath_value, carriageway_width)
-            scroll_area.setWidget(self.additional_inputs_widget)
-            self.additional_inputs_window.destroyed.connect(lambda _=None: self._handle_additional_inputs_closed())
-            self._set_additional_inputs_enabled(not self.is_locked)
-            
-            self.additional_inputs_window.show()
-        else:
-            self.additional_inputs_window.raise_()
-            self.additional_inputs_window.activateWindow()
-            self._set_additional_inputs_enabled(not self.is_locked)
+        self.additional_inputs = AdditionalInputs(footpath_value, carriageway_width)
+        self.additional_inputs.show()
     
     def _apply_lock_state(self):
         self.update_lock_icon()
@@ -1651,12 +1625,12 @@ class InputDock(QWidget):
             self.additional_inputs_widget.setEnabled(enabled)
 
     def _handle_additional_inputs_closed(self):
-        self.additional_inputs_window = None
+        self.additional_inputs = None
         self.additional_inputs_widget = None
 
     def on_footpath_changed(self, footpath_value):
         """Update additional inputs when footpath changes"""
-        if self.additional_inputs_window and self.additional_inputs_window.isVisible():
+        if self.additional_inputs and self.additional_inputs.isVisible():
             if hasattr(self, 'additional_inputs_widget'):
                 self.additional_inputs_widget.update_footpath_value(footpath_value)
 

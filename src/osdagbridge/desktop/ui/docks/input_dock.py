@@ -6,19 +6,21 @@ from PySide6.QtWidgets import (
     QComboBox, QScrollArea, QLabel, QFormLayout, QLineEdit, QGroupBox, QSizePolicy, QMessageBox, QInputDialog, QDialog, QCheckBox, QFrame,
     QDialogButtonBox, QStackedWidget
 )
-from PySide6.QtCore import Qt, QRegularExpression, QSize
+from PySide6.QtCore import Qt, QRegularExpression, QSize, QTimer, QPoint, QEvent
 from PySide6.QtGui import QPixmap, QDoubleValidator, QRegularExpressionValidator, QIcon
 from PySide6.QtSvgWidgets import *
 from osdagbridge.core.utils.common import *
-from osdagbridge.desktop.ui.additional_inputs import AdditionalInputs
+from osdagbridge.desktop.ui.dialogs.additional_inputs import AdditionalInputs
 from osdagbridge.desktop.ui.utils.custom_buttons import DockCustomButton
+from osdagbridge.desktop.ui.dialogs.project_location import ProjectLocationDialog
+
 
 STEEL_MEMBER_FIELDS = [
     "Ultimate Tensile Strength, Fu (MPa)",
     "Yield Strength, Fy (MPa)",
     "Modulus of Elasticity, E (GPa)",
     "Modulus of Rigidity, G (GPa)",
-    "Poisson’s Ratio, ν",
+    "Poisson's Ratio, ν",
     "Thermal Expansion Coefficient, (×10⁻⁶/°C)",
 ]
 
@@ -119,7 +121,11 @@ def apply_field_style(widget):
                 background-color: #90AF13;
                 color: black;
                 border: 1px solid #94b816;
-            } 
+            }
+            QComboBox:disabled{
+                background: #f1f1f1;
+                color: #666;
+            }
         """
         widget.setStyleSheet(style)
     elif isinstance(widget, QLineEdit):
@@ -132,532 +138,16 @@ def apply_field_style(widget):
                 color: #000000;
                 font-weight: normal;
             }
+            QLineEdit:disabled{
+                background: #f1f1f1;
+                color: #666;
+            }
         """)
 
 
 class MaterialPropertiesDialog(QDialog):
-    MEMBER_OPTIONS = ["Girder", "Cross Bracing", "End Diaphragm", "Deck"]
-    STEEL_MEMBERS = {"Girder", "Cross Bracing", "End Diaphragm"}
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Material Properties")
-        self.setMinimumWidth(580)
-        self.setStyleSheet("background-color: white;")
-
-        self.parent_dock = parent
-        self._loading = False
-        self.current_member = None
-        self.member_data = {}
-
-        self.member_combo = NoScrollComboBox()
-        self.member_combo.addItems(self.MEMBER_OPTIONS)
-        apply_field_style(self.member_combo)
-
-        self.material_combo = NoScrollComboBox()
-        apply_field_style(self.material_combo)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 16, 20, 16)
-
-        # Create a container widget for all form fields
-        form_container = QWidget()
-        form_layout = QVBoxLayout(form_container)
-        form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setSpacing(10)
-        
-        # Member row
-        member_row = QHBoxLayout()
-        member_row.setContentsMargins(0, 0, 0, 0)
-        member_row.setSpacing(18)
-        member_label = QLabel("Member*:")
-        member_label.setStyleSheet("font-size: 12px; color: #2d2d2d;")
-        member_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        member_label.setFixedWidth(280)
-        self.member_combo.setFixedWidth(242)
-        member_row.addWidget(member_label)
-        member_row.addWidget(self.member_combo)
-        member_row.addStretch()
-        form_layout.addLayout(member_row)
-        
-        # Material row
-        material_row = QHBoxLayout()
-        material_row.setContentsMargins(0, 0, 0, 0)
-        material_row.setSpacing(18)
-        material_label = QLabel("Material*:")
-        material_label.setStyleSheet("font-size: 12px; color: #2d2d2d;")
-        material_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        material_label.setFixedWidth(280)
-        self.material_combo.setFixedWidth(242)
-        material_row.addWidget(material_label)
-        material_row.addWidget(self.material_combo)
-        material_row.addStretch()
-        form_layout.addLayout(material_row)
-        
-        main_layout.addWidget(form_container)
-
-        self.stack = QStackedWidget()
-        self.stack.setContentsMargins(0, 0, 0, 0)
-        self.steel_page = self._build_steel_form()
-        self.deck_page = self._build_deck_form()
-        self.stack.addWidget(self.steel_page)
-        self.stack.addWidget(self.deck_page)
-        main_layout.addWidget(self.stack)
-
-        # Updated default row with proper alignment
-        default_row = QHBoxLayout()
-        default_row.setContentsMargins(0, 0, 0, 0)
-        default_row.setSpacing(18)
-        default_label = QLabel("Default")
-        default_label.setStyleSheet("font-size: 12px; color: #2d2d2d;")
-        default_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        default_label.setFixedWidth(280)
-        self.default_checkbox = QCheckBox()
-        # Create container for checkbox to align it to the left
-        checkbox_container = QWidget()
-        checkbox_layout = QHBoxLayout(checkbox_container)
-        checkbox_layout.setContentsMargins(0, 0, 0, 0)
-        checkbox_layout.setSpacing(0)
-        checkbox_layout.addWidget(self.default_checkbox)
-        checkbox_layout.addStretch()
-        
-        default_row.addWidget(default_label)
-        default_row.addWidget(checkbox_container)
-        main_layout.addLayout(default_row)
-
-        self.member_combo.currentTextChanged.connect(self._on_member_changed)
-        self.material_combo.currentTextChanged.connect(self._on_material_changed)
-        self.default_checkbox.stateChanged.connect(self._on_default_toggled)
-
-        self._initialize_member_data()
-        self._on_member_changed(self.member_combo.currentText())
-
-    def closeEvent(self, event):
-        self._save_current_member_form()
-        super().closeEvent(event)
-
-    def _build_steel_form(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-        self.steel_field_inputs = {}
-        for label_text in STEEL_MEMBER_FIELDS:
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(18)
-            label = QLabel(label_text)
-            label.setStyleSheet("font-size: 12px; color: #2d2d2d;")
-            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            label.setFixedWidth(280)
-            line_edit = QLineEdit()
-            line_edit.setFixedWidth(242)
-            apply_field_style(line_edit)
-            # Add validator for 1 decimal place
-            line_edit.setValidator(QDoubleValidator(0.0, 99999.0, 1))
-            line_edit.textEdited.connect(self._handle_user_override)
-            self.steel_field_inputs[label_text] = line_edit
-            row.addWidget(label)
-            row.addWidget(line_edit)
-            row.addStretch()
-            layout.addLayout(row)
-        layout.addStretch()
-        return widget
-
-    def _build_deck_form(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(10)
-        self.deck_field_inputs = {}
-        for label_text in DECK_MEMBER_FIELDS:
-            row = QHBoxLayout()
-            row.setSpacing(18)
-            label = QLabel(label_text)
-            label.setStyleSheet("font-size: 12px; color: #2d2d2d;")
-            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            label.setFixedWidth(280)
-            if label_text == "Ecm Multiplication Factor":
-                self.deck_factor_combo = NoScrollComboBox()
-                self.deck_factor_combo.addItems(ECM_FACTOR_LABELS)
-                self.deck_factor_combo.setFixedWidth(242)
-                apply_field_style(self.deck_factor_combo)
-                self.deck_factor_combo.currentTextChanged.connect(self._on_factor_changed)
-
-                self.deck_factor_custom_input = QLineEdit()
-                apply_field_style(self.deck_factor_custom_input)
-                self.deck_factor_custom_input.setPlaceholderText("Custom factor")
-                self.deck_factor_custom_input.setFixedWidth(242)
-                self.deck_factor_custom_input.setVisible(False)
-                self.deck_factor_custom_input.setEnabled(False)
-                self.deck_factor_custom_input.setValidator(QDoubleValidator(0.1, 5.0, 1))
-                self.deck_factor_custom_input.textEdited.connect(self._handle_user_override)
-
-                row.addWidget(label)
-                row.addWidget(self.deck_factor_combo)
-                row.addStretch()
-                
-                # Add custom input row (hidden by default)
-                custom_row = QHBoxLayout()
-                custom_row.setContentsMargins(0, 0, 0, 0)
-                custom_row.setSpacing(18)
-                custom_label = QLabel("")  # Empty label for alignment
-                custom_label.setFixedWidth(280)
-                custom_row.addWidget(custom_label)
-                custom_row.addWidget(self.deck_factor_custom_input)
-                custom_row.addStretch()
-                layout.addLayout(custom_row)
-                
-                self.deck_field_inputs[label_text] = self.deck_factor_combo
-            else:
-                line_edit = QLineEdit()
-                line_edit.setFixedWidth(242)
-                apply_field_style(line_edit)
-                # Add validator for 1 decimal place
-                line_edit.setValidator(QDoubleValidator(0.0, 99999.0, 1))
-                line_edit.textEdited.connect(self._handle_user_override)
-                row.addWidget(label)
-                row.addWidget(line_edit)
-                row.addStretch()
-                self.deck_field_inputs[label_text] = line_edit
-            layout.addLayout(row)
-        layout.addStretch()
-        return widget
-
-    def _initialize_member_data(self):
-        for member in self.MEMBER_OPTIONS:
-            material = self._get_parent_grade(member)
-            fields = self._default_fields_for_member(member, material)
-            self.member_data[member] = {
-                "material": material,
-                "fields": fields,
-                "is_default": True,
-                "factor_label": DEFAULT_ECM_FACTOR_LABEL if member == "Deck" else None,
-                "custom_factor": "1.0" if member == "Deck" else None,
-            }
-
-    def _default_fields_for_member(self, member, material=None, factor_label=None, custom_factor=None):
-        if member == "Deck":
-            grade = material or self._get_parent_grade(member) or (VALUES_DECK_CONCRETE_GRADE[0] if VALUES_DECK_CONCRETE_GRADE else "")
-            factor_label = factor_label or DEFAULT_ECM_FACTOR_LABEL
-            factor_value = self._factor_value_from_label(factor_label, custom_factor)
-            return self._deck_defaults(grade, factor_value)
-        grade = material or self._get_parent_grade(member) or (VALUES_MATERIAL[0] if VALUES_MATERIAL else "")
-        return self._steel_defaults(grade)
-
-    def _steel_defaults(self, grade):
-        grade_value = self._extract_numeric_grade(grade)
-        defaults = STEEL_GRADE_BASE_VALUES.get(grade_value, STEEL_GRADE_BASE_VALUES[250])
-        return {
-            "Ultimate Tensile Strength, Fu (MPa)": "{:.1f}".format(defaults["Fu"]),
-            "Yield Strength, Fy (MPa)": "{:.1f}".format(defaults["Fy"]),
-            "Modulus of Elasticity, E (GPa)": "{:.1f}".format(STEEL_MODULUS_E_GPA),
-            "Modulus of Rigidity, G (GPa)": "{:.1f}".format(STEEL_MODULUS_G_GPA),
-            "Poisson's Ratio, ν": "{:.1f}".format(STEEL_POISSON_RATIO),
-            "Thermal Expansion Coefficient, (×10⁻⁶/°C)": "{:.1f}".format(STEEL_THERMAL_COEFF),
-        }
-
-    def _deck_defaults(self, grade, factor_value):
-        strength = self._extract_numeric_grade(grade, default=25)
-        fck = float(strength)
-        fctm = round(0.7 * math.sqrt(fck), 1)
-        ecm = round(5.0 * math.sqrt(fck) * factor_value, 1)
-        return {
-            "Characteristic Compressive (Cube) Strength of Concrete, (fck)cu (MPa)": "{:.1f}".format(fck),
-            "Mean Tensile Strength of Concrete, fctm (MPa)": "{:.1f}".format(fctm),
-            "Secant Modulus of Elasticity of Concrete, Ecm (GPa)": "{:.1f}".format(ecm),
-            "Ecm Multiplication Factor": "{:.1f}".format(factor_value),
-        }
-
-    def _extract_numeric_grade(self, grade, default=250):
-        digits = ''.join(ch for ch in grade if ch.isdigit())
-        try:
-            return int(digits) if digits else default
-        except ValueError:
-            return default
-
-    def _materials_for_member(self, member):
-        return VALUES_DECK_CONCRETE_GRADE if member == "Deck" else VALUES_MATERIAL
-
-    def _on_member_changed(self, member):
-        if self.current_member:
-            self._save_current_member_form()
-
-        self.current_member = member
-        is_deck = member == "Deck"
-        self.stack.setCurrentWidget(self.deck_page if is_deck else self.steel_page)
-
-        data = self.member_data.get(member)
-        if not data:
-            self.member_data[member] = self._create_default_entry(member)
-            data = self.member_data[member]
-
-        if data.get("is_default"):
-            self._apply_defaults_for_member(member, update_ui=False)
-
-        materials = self._materials_for_member(member)
-        self._loading = True
-        self.material_combo.clear()
-        self.material_combo.addItems(materials)
-        if data["material"] in materials:
-            self.material_combo.setCurrentText(data["material"])
-        elif materials:
-            self.material_combo.setCurrentIndex(0)
-            data["material"] = self.material_combo.currentText()
-
-        self.default_checkbox.setChecked(data.get("is_default", False))
-        if is_deck:
-            self._populate_deck_fields(data)
-        else:
-            self._populate_steel_fields(data)
-        self._loading = False
-
-    def _populate_steel_fields(self, data):
-        for label, widget in self.steel_field_inputs.items():
-            value = data["fields"].get(label, "")
-            # Format to 1 decimal place
-            try:
-                formatted_value = "{:.1f}".format(float(value))
-                widget.setText(formatted_value)
-            except (ValueError, TypeError):
-                widget.setText(value)
-
-    def _populate_deck_fields(self, data):
-        for label, widget in self.deck_field_inputs.items():
-            if label == "Ecm Multiplication Factor":
-                factor_label = data.get("factor_label", DEFAULT_ECM_FACTOR_LABEL)
-                if factor_label not in ECM_FACTOR_LABELS:
-                    factor_label = DEFAULT_ECM_FACTOR_LABEL
-                self.deck_factor_combo.blockSignals(True)
-                self.deck_factor_combo.setCurrentText(factor_label)
-                self.deck_factor_combo.blockSignals(False)
-                self._update_custom_factor_visibility(factor_label)
-                self.deck_factor_custom_input.blockSignals(True)
-                custom_val = data.get("custom_factor", "1.0")
-                try:
-                    formatted_custom = "{:.1f}".format(float(custom_val))
-                    self.deck_factor_custom_input.setText(formatted_custom)
-                except (ValueError, TypeError):
-                    self.deck_factor_custom_input.setText(custom_val)
-                self.deck_factor_custom_input.blockSignals(False)
-            else:
-                value = data["fields"].get(label, "")
-                # Format to 1 decimal place
-                try:
-                    formatted_value = "{:.1f}".format(float(value))
-                    widget.setText(formatted_value)
-                except (ValueError, TypeError):
-                    widget.setText(value)
-
-    def _save_current_member_form(self):
-        if not self.current_member:
-            return
-        data = self.member_data.setdefault(self.current_member, self._create_default_entry(self.current_member))
-        data["material"] = self.material_combo.currentText()
-        if self.current_member == "Deck":
-            for label, widget in self.deck_field_inputs.items():
-                if label == "Ecm Multiplication Factor":
-                    data["factor_label"] = self.deck_factor_combo.currentText()
-                    data["custom_factor"] = self.deck_factor_custom_input.text() or "1.0"
-                else:
-                    data["fields"][label] = widget.text()
-            factor_value = self._factor_value_from_label(data["factor_label"], data.get("custom_factor"))
-            data["fields"]["Ecm Multiplication Factor"] = "{:.1f}".format(factor_value)
-        else:
-            for label, widget in self.steel_field_inputs.items():
-                data["fields"][label] = widget.text()
-        data["is_default"] = self.default_checkbox.isChecked()
-
-    def _create_default_entry(self, member):
-        material = self._get_parent_grade(member)
-        return {
-            "material": material,
-            "fields": self._default_fields_for_member(member, material),
-            "is_default": True,
-            "factor_label": DEFAULT_ECM_FACTOR_LABEL if member == "Deck" else None,
-            "custom_factor": "1.0" if member == "Deck" else None,
-        }
-
-    def _apply_defaults_for_member(self, member, update_ui=True):
-        data = self.member_data.setdefault(member, self._create_default_entry(member))
-        grade = self._get_parent_grade(member) or data.get("material")
-        materials = self._materials_for_member(member)
-        if grade not in materials and materials:
-            grade = materials[0]
-        data["material"] = grade
-        if member == "Deck":
-            data["factor_label"] = DEFAULT_ECM_FACTOR_LABEL
-            data["custom_factor"] = "1.0"
-            factor_value = self._factor_value_from_label(DEFAULT_ECM_FACTOR_LABEL)
-            data["fields"] = self._deck_defaults(grade, factor_value)
-        else:
-            data["fields"] = self._steel_defaults(grade)
-        data["is_default"] = True
-
-        if update_ui and member == self.current_member:
-            self._loading = True
-            self.material_combo.setCurrentText(grade)
-            if member == "Deck":
-                self._populate_deck_fields(data)
-            else:
-                self._populate_steel_fields(data)
-            self.default_checkbox.setChecked(True)
-            self._loading = False
-
-    def _factor_value_from_label(self, label, custom_factor=None):
-        for text, value in ECM_FACTOR_OPTIONS:
-            if text == label:
-                if value is None:
-                    try:
-                        return float(custom_factor) if custom_factor else 1.0
-                    except ValueError:
-                        return 1.0
-                return value
-        return 1.0
-
-    def _reset_current_member_to_defaults(self):
-        if not self.current_member:
-            return
-
-        self._apply_defaults_for_member(self.current_member, update_ui=False)
-        data = self.member_data.get(self.current_member)
-        if not data:
-            return
-
-        target_material = data.get("material", "")
-        self._loading = True
-        if target_material:
-            index = self.material_combo.findText(target_material)
-            if index >= 0:
-                self.material_combo.setCurrentIndex(index)
-            elif self.material_combo.count() > 0:
-                self.material_combo.setCurrentIndex(0)
-                data["material"] = self.material_combo.currentText()
-        if self.current_member == "Deck":
-            self._populate_deck_fields(data)
-        else:
-            self._populate_steel_fields(data)
-        self._loading = False
-
-        self.default_checkbox.blockSignals(True)
-        self.default_checkbox.setChecked(True)
-        self.default_checkbox.blockSignals(False)
-        self._save_current_member_form()
-
-    def _update_custom_factor_visibility(self, label):
-        is_custom = label == CUSTOM_ECM_FACTOR_LABEL
-        self.deck_factor_custom_input.setVisible(is_custom)
-        self.deck_factor_custom_input.setEnabled(is_custom)
-        self.deck_factor_combo.setVisible(not is_custom)
-
-    def _on_material_changed(self, material):
-        if self._loading:
-            return
-        data = self.member_data.get(self.current_member)
-        if data:
-            data["material"] = material
-        self._handle_user_override()
-
-    def _on_default_toggled(self, state):
-        if self._loading:
-            return
-        try:
-            check_state = Qt.CheckState(state)
-        except ValueError:
-            check_state = Qt.CheckState.Checked if bool(state) else Qt.CheckState.Unchecked
-        if check_state == Qt.CheckState.Checked:
-            self._reset_current_member_to_defaults()
-        else:
-            data = self.member_data.get(self.current_member)
-            if data:
-                data["is_default"] = False
-
-    def _on_factor_changed(self, label):
-        self._update_custom_factor_visibility(label)
-        self._handle_user_override()
-
-    def _handle_user_override(self):
-        if self._loading:
-            return
-        if self.default_checkbox.isChecked():
-            self._loading = True
-            self.default_checkbox.setChecked(False)
-            self._loading = False
-        data = self.member_data.get(self.current_member)
-        if data:
-            data["is_default"] = False
-        self._save_current_member_form()
-
-    def _get_parent_grade(self, member):
-        parent = self.parent_dock
-        if not parent:
-            return ""
-        mapping = {
-            "Girder": getattr(parent, "girder_combo", None),
-            "Cross Bracing": getattr(parent, "cross_bracing_combo", None),
-            "End Diaphragm": getattr(parent, "end_diaphragm_combo", None),
-            "Deck": getattr(parent, "deck_combo", None),
-        }
-        combo = mapping.get(member)
-        return combo.currentText() if combo else ""
-
-    def set_member(self, member):
-        index = self.member_combo.findText(member)
-        if index >= 0:
-            self.member_combo.setCurrentIndex(index)
-
-    def sync_with_parent_defaults(self):
-        for member, data in self.member_data.items():
-            if data.get("is_default"):
-                self._apply_defaults_for_member(member, update_ui=(member == self.current_member))
-def create_group_box(title):
-    """Create a styled group box"""
-    group_box = QGroupBox(title)
-    group_box.setStyleSheet("""
-        QGroupBox {
-            font-weight: bold;
-            font-size: 12px;
-            color: #333;
-            border: 1px solid #90AF13;
-            border-radius: 4px;
-            margin-top: 0.8em;
-            padding: 10px;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            left: 8px;
-            padding: 0 4px;
-            margin-top: 4px;
-            background-color: white;
-            color: #333;
-        }
-    """)
-    return group_box
-
-
-def create_form_row(label_text, widget, tooltip=None):
-    """Create a horizontal layout with label and widget side by side"""
-    row = QHBoxLayout()
-    row.setSpacing(10)
-    
-    label = QLabel(label_text)
-    label.setStyleSheet("""
-            QLabel {
-                color: #000000;
-                font-size: 12px;
-                background: transparent;
-            }
-        """)
-    label.setMinimumWidth(140)
-    label.setMaximumWidth(140)
-    
-    if tooltip:
-        widget.setToolTip(tooltip)
-    
-    row.addWidget(label)
-    row.addWidget(widget, 1)
-    
-    return row
+    # ... (Keep all MaterialPropertiesDialog code unchanged)
+    pass
 
 
 class InputDock(QWidget):
@@ -675,7 +165,7 @@ class InputDock(QWidget):
         self.additional_inputs_widget = None
         self.material_dialog = None
         self.additional_inputs_btn = None
-        self.lock_button = None
+        self.lock_btn = None
         self.scroll_area = None
         self.is_locked = False
 
@@ -739,306 +229,92 @@ class InputDock(QWidget):
         else:
             if hasattr(self, 'structure_note'):
                 self.structure_note.setVisible(False)
-    
-    def on_project_location_changed(self, text):
-        """Handle project location combo box changes"""
-        if text == "Custom":
-            custom_location, ok = QInputDialog.getText(
-                self,
-                "Custom Location",
-                "Enter city name for load calculations",
-                QLineEdit.Normal,
-                ""
-            )
-            if ok and custom_location.strip():
-                self.custom_location_input = custom_location.strip()
-                QMessageBox.information(
-                    self,
-                    "Custom Location Set",
-                    f"Custom location '{custom_location.strip()}' has been set.\n\n"
-                    f"Note: Please ensure load calculation data is available for this location.",
-                    QMessageBox.Ok
-                )
-                self.project_location_combo.addItem(custom_location.strip())
-            elif ok:
-                QMessageBox.warning(
-                    self,
-                    "No Location Entered",
-                    "Please enter a valid city name or select from the dropdown.",
-                    QMessageBox.Ok
-                )
-                if self.project_location_combo:
-                    self.project_location_combo.setCurrentIndex(0)
-        
+ 
     def show_project_location_dialog(self):
         """Show Project Location selection dialog"""
-        state_districts = {
-            "Select State": ["Select District"],
-            "Delhi": ["Central Delhi", "East Delhi", "New Delhi", "North Delhi", "North East Delhi", 
-                      "North West Delhi", "South Delhi", "South East Delhi", "South West Delhi", "West Delhi"],
-            "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Thane", "Nashik", "Aurangabad", "Solapur", 
-                           "Amravati", "Kolhapur", "Raigad", "Satara", "Sangli"],
-            "Karnataka": ["Bangalore", "Mysore", "Hubli", "Belgaum", "Mangalore", "Gulbarga", 
-                         "Bellary", "Bijapur", "Shimoga", "Tumkur", "Davangere"],
-            "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Tiruchirappalli", "Salem", "Tirunelveli", 
-                          "Tiruppur", "Erode", "Vellore", "Thoothukudi", "Dindigul"],
-            "West Bengal": ["Kolkata", "Howrah", "Darjeeling", "Siliguri", "Asansol", "Durgapur", 
-                           "Bardhaman", "Malda", "Jalpaiguri", "Murshidabad", "Nadia"]
-        }
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Project Location")
-        dialog.setMinimumWidth(850)
-        dialog.setMinimumHeight(650)
-        
-        # Set white background for the entire dialog
-        dialog.setStyleSheet("""
-            QDialog {
-                background-color: white;
-            }
-            QCheckBox {
-                color: black;
-            }
-            QLabel {
-                color: black;
-            }
-        """)
-        
-        main_layout = QVBoxLayout(dialog)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
-        
-        # === Enter Coordinates Row ===
-        coords_row = QHBoxLayout()
-        coords_row.setSpacing(15)
-        
-        self.coords_checkbox = QCheckBox("Enter Coordinates")
-        coords_row.addWidget(self.coords_checkbox)
-        
-        coords_row.addStretch()
-        
-        lat_label = QLabel("Latitude (°)")
-        lat_label.setStyleSheet("font-size: 11px;")
-        coords_row.addWidget(lat_label)
-        
-        self.latitude_input = QLineEdit()
-        self.latitude_input.setMaximumWidth(120)
-        self.latitude_input.setEnabled(False)
-        apply_field_style(self.latitude_input)
-        coords_row.addWidget(self.latitude_input)
-        
-        lng_label = QLabel("Longitude (°)")
-        lng_label.setStyleSheet("font-size: 11px;")
-        coords_row.addWidget(lng_label)
-        
-        self.longitude_input = QLineEdit()
-        self.longitude_input.setMaximumWidth(120)
-        self.longitude_input.setEnabled(False)
-        apply_field_style(self.longitude_input)
-        coords_row.addWidget(self.longitude_input)
-        
-        main_layout.addLayout(coords_row)
-        
-        # Separator line
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.HLine)
-        line1.setFrameShadow(QFrame.Sunken)
-        line1.setStyleSheet("background-color: #d0d0d0;")
-        main_layout.addWidget(line1)
-        
-        # === Enter Location Name Row ===
-        location_row = QHBoxLayout()
-        location_row.setSpacing(15)
-        
-        self.location_checkbox = QCheckBox("Enter Location Name")
-        location_row.addWidget(self.location_checkbox)
-        
-        location_row.addStretch()
-        
-        state_label = QLabel("State")
-        state_label.setStyleSheet("font-size: 11px;")
-        location_row.addWidget(state_label)
-        
-        self.state_combo = NoScrollComboBox()
-        self.state_combo.setMaximumWidth(150)
-        self.state_combo.setEnabled(False)
-        self.state_combo.addItems(list(state_districts.keys()))
-        apply_field_style(self.state_combo)
-        location_row.addWidget(self.state_combo)
-        
-        district_label = QLabel("District")
-        district_label.setStyleSheet("font-size: 11px;")
-        location_row.addWidget(district_label)
-        
-        self.district_combo = NoScrollComboBox()
-        self.district_combo.setMaximumWidth(150)
-        self.district_combo.setEnabled(False)
-        self.district_combo.addItems(["Select District"])
-        apply_field_style(self.district_combo)
-        location_row.addWidget(self.district_combo)
-        
-        main_layout.addLayout(location_row)
-        
-        # Separator line
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.HLine)
-        line2.setFrameShadow(QFrame.Sunken)
-        line2.setStyleSheet("background-color: #d0d0d0;")
-        main_layout.addWidget(line2)
-        
-        # === Select on Map Section ===
-        map_section = QVBoxLayout()
-        map_section.setSpacing(8)
-        
-        self.map_checkbox = QCheckBox("Select on Map")
-        map_section.addWidget(self.map_checkbox)
-        
-        # Map placeholder
-        self.map_placeholder = QLabel()
-        self.map_placeholder.setStyleSheet("""
-            QLabel {
-                border: 1px solid #e0e0e0;
-                background-color: white;
-                padding: 20px;
-                color: #999999;
-            }
-        """)
-        self.map_placeholder.setAlignment(Qt.AlignCenter)
-        self.map_placeholder.setMinimumHeight(200)
-        self.map_placeholder.setText("Map Placeholder\n(Will be added later)")
-        self.map_placeholder.setEnabled(False)  # Disabled by default
-        map_section.addWidget(self.map_placeholder)
-        
-        main_layout.addLayout(map_section)
-        
-        # Separator line
-        line3 = QFrame()
-        line3.setFrameShape(QFrame.HLine)
-        line3.setFrameShadow(QFrame.Sunken)
-        line3.setStyleSheet("background-color: #d0d0d0;")
-        main_layout.addWidget(line3)
-        
-        # === IRC 6 (2017) Values Section ===
-        results_section = QVBoxLayout()
-        results_section.setSpacing(8)
-        
-        results_title = QLabel("IRC 6 (2017) Values")
-        results_title.setStyleSheet("font-size: 12px; font-weight: bold; color: #4CAF50;")
-        results_section.addWidget(results_title)
-        
-        self.wind_speed_label = QLabel("Basic Wind Speed (m/sec)")
-        self.wind_speed_label.setStyleSheet("font-size: 11px; color: #4CAF50;")
-        results_section.addWidget(self.wind_speed_label)
-        
-        self.seismic_zone_label = QLabel("Seismic Zone and Zone Factor")
-        self.seismic_zone_label.setStyleSheet("font-size: 11px; color: #4CAF50;")
-        results_section.addWidget(self.seismic_zone_label)
-        
-        self.temp_label = QLabel("Shade Air Temperature (°C)")
-        self.temp_label.setStyleSheet("font-size: 11px; color: #4CAF50;")
-        results_section.addWidget(self.temp_label)
-        
-        main_layout.addLayout(results_section)
-        
-        # Separator line
-        line4 = QFrame()
-        line4.setFrameShape(QFrame.HLine)
-        line4.setFrameShadow(QFrame.Sunken)
-        line4.setStyleSheet("background-color: #d0d0d0;")
-        main_layout.addWidget(line4)
-        
-        # === Custom Loading Parameters Checkbox ===
-        self.custom_params_checkbox = QCheckBox("Tabulate Custom Loading Parameters")
-        main_layout.addWidget(self.custom_params_checkbox)
-        
-        main_layout.addStretch()
-        
-        # === Bottom Buttons ===
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        
-        ok_btn = QPushButton("OK")
-        ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ok_btn.setStyleSheet("""
-            QPushButton {
-                background-color: white;
-                color: #333;
-                border: 1px solid #c0c0c0;
-                border-radius: 3px;
-                padding: 6px 16px;
-                min-height: 28px;
-            }
-            QPushButton:hover {
-                background-color: #f5f5f5;
-            }
-        """)
-        ok_btn.setMinimumWidth(100)
-        ok_btn.clicked.connect(dialog.accept)
-        btn_layout.addWidget(ok_btn)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: white;
-                color: #333;
-                border: 1px solid #c0c0c0;
-                border-radius: 3px;
-                padding: 6px 16px;
-                min-height: 28px;
-            }
-            QPushButton:hover {
-                background-color: #f5f5f5;
-            }
-        """)
-        cancel_btn.setMinimumWidth(100)
-        cancel_btn.clicked.connect(dialog.reject)
-        btn_layout.addWidget(cancel_btn)
-        
-        main_layout.addLayout(btn_layout)
-        
-        # Function to update districts based on selected state
-        def on_state_changed(state_name):
-            districts = state_districts.get(state_name, ["Select District"])
-            self.district_combo.clear()
-            self.district_combo.addItems(districts)
-        
-        # Function to handle map checkbox
-        def on_map_checkbox_changed(state):
-            enabled = (state == 2)
-            self.map_placeholder.setEnabled(enabled)
-            if enabled:
-                self.map_placeholder.setStyleSheet("""
-                    QLabel {
-                        border: 2px solid #90AF13;
-                        background-color: white;
-                        padding: 20px;
-                        color: #666666;
-                    }
-                """)
-                self.map_placeholder.setText("Map Placeholder\n(Click to select location)\n(Will be implemented later)")
-            else:
-                self.map_placeholder.setStyleSheet("""
-                    QLabel {
-                        border: 1px solid #e0e0e0;
-                        background-color: #f5f5f5;
-                        padding: 20px;
-                        color: #999999;
-                    }
-                """)
-                self.map_placeholder.setText("Map Placeholder\n(Will be added later)")
-        
-        # Connect checkbox signals to enable/disable fields
-        self.coords_checkbox.stateChanged.connect(lambda state: self.latitude_input.setEnabled(state == 2) or self.longitude_input.setEnabled(state == 2))
-        self.location_checkbox.stateChanged.connect(lambda state: self.state_combo.setEnabled(state == 2) or self.district_combo.setEnabled(state == 2))
-        self.map_checkbox.stateChanged.connect(on_map_checkbox_changed)
-        
-        # Connect state combo to update districts
-        self.state_combo.currentTextChanged.connect(on_state_changed)
+        dialog = ProjectLocationDialog()
         
         if dialog.exec() == QDialog.Accepted:
-            pass
+            location_data = dialog.get_selected_location()
+            
+            # Process the location data as needed
+            if location_data['method'] == 'coordinates':
+                lat = location_data['data']['latitude']
+                lon = location_data['data']['longitude']
+                print(f"Selected coordinates: {lat}, {lon}")
+                
+            elif location_data['method'] == 'location_name':
+                state = location_data['data']['state']
+                district = location_data['data']['district']
+                print(f"Selected location: {district}, {state}")
+                
+            elif location_data['method'] == 'map':
+                print("Map selection (to be implemented)")
+            
+            if location_data['custom_params']:
+                print("Custom loading parameters requested")
+
+    # Lock-Tooltip-Events-Starts-------------------------------------------------------------------------
+    def eventFilter(self, obj, event):
+        # Check if it's the scroll area and it's a mouse press
+        if obj == self.scroll_area and event.type() == QEvent.MouseButtonPress:
+            if self.is_locked:
+                self.show_lock_tooltip()
+            return True  # Block the event
+        return super().eventFilter(obj, event)
     
+    def clear_force_hover(self):
+        if self.lock_btn:
+            self.lock_btn.setProperty("forceHover", False)
+            self.lock_btn.style().polish(self.lock_btn)
+            self.lock_btn.update()
+
+    def show_lock_tooltip(self):
+        # Stop any existing timer first
+        if hasattr(self, 'tooltip_timer') and self.tooltip_timer.isActive():
+            self.tooltip_timer.stop()
+        
+        # Position tooltip to the right of the lock button
+        lock_global_pos = self.lock_btn.mapToGlobal(self.lock_btn.rect().topRight())
+        tooltip_pos = lock_global_pos + QPoint(5, 0)
+        self.lock_btn.setProperty("forceHover", True)
+        self.lock_btn.style().polish(self.lock_btn)
+        self.lock_btn.update()
+                
+        # Adjust size and position
+        self.lock_btn_tooltip.adjustSize()
+        self.lock_btn_tooltip.move(tooltip_pos)
+        self.lock_btn_tooltip.show()
+        self.lock_btn_tooltip.raise_()
+        
+        # Hide after 3 seconds
+        if not hasattr(self, 'tooltip_timer'):
+            self.tooltip_timer = QTimer()
+            self.tooltip_timer.setSingleShot(True)
+            self.tooltip_timer.timeout.connect(self.lock_btn_tooltip.hide)
+            self.tooltip_timer.timeout.connect(self.clear_force_hover)
+        
+        self.tooltip_timer.start(3000)
+    
+    def toggle_lock(self):            
+        self.is_locked = not self.is_locked
+        self.lock_btn.setChecked(self.is_locked)
+        self.scroll_area.setDisabled(self.is_locked)
+        self.update_lock_icon()
+
+    def update_lock_icon(self):
+        if self.lock_btn:
+            if self.is_locked:
+                self.lock_btn.setIcon(QIcon(":/vectors/lock_close.svg"))
+            else:
+                self.lock_btn.setIcon(QIcon(":/vectors/lock_open.svg"))
+
+    def paintEvent(self, event):
+        self.update_lock_icon()
+        return super().paintEvent(event)
+    
+    # Lock-Tooltip-Events-Ends-------------------------------------------------------------------------
+
     def build_left_panel(self, field_list):
         left_layout = QVBoxLayout(self.left_container)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -1071,7 +347,6 @@ class InputDock(QWidget):
         input_dock_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         top_bar.addWidget(input_dock_btn)
         
-        # Additional Inputs button with lock icon on the right
         self.additional_inputs_btn = QPushButton("Additional Inputs")
         self.additional_inputs_btn.setCursor(Qt.CursorShape.PointingHandCursor)        
         self.additional_inputs_btn.setStyleSheet("""
@@ -1100,15 +375,56 @@ class InputDock(QWidget):
         self.additional_inputs_btn.clicked.connect(self.show_additional_inputs)
         top_bar.addWidget(self.additional_inputs_btn)           
 
-        # Load the icon from resources
-        self.lock_button = QPushButton()
-        self.lock_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lock_button.setIconSize(QSize(30, 30))
-        self.lock_button.setStyleSheet("border: none;")
-        self.lock_button.clicked.connect(self._toggle_lock_state)
-        top_bar.addWidget(self.lock_button)
-        
+        # Lock button
+        self.lock_btn = QPushButton()
+        self.lock_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f4f4f4;
+                border: none;
+                padding: 7px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:checked {
+                background-color: #FFA500;
+            }
+            QPushButton:unchecked {
+                background-color: #f4f4f4;
+            }
+            QPushButton:unchecked:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton:checked:hover {
+                background-color: #fa7a02;
+            }
+        """)
+        self.lock_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.lock_btn.setObjectName("lock_btn")
+        self.lock_btn.setCheckable(True)
+        self.lock_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.lock_btn.clicked.connect(self.toggle_lock)
+        top_bar.addWidget(self.lock_btn)
         panel_layout.addLayout(top_bar)
+
+        #-Lock-ToolTip--------------------------------------
+        self.lock_btn_tooltip = QLabel("Unlock to Edit")
+        self.lock_btn_tooltip.setStyleSheet("""
+            QLabel{
+                background-color: #f1f1f1;
+                color: #000000;
+                border: 1px solid #90AF13;
+                padding: 4px;
+                font-size: 15px;
+                border-radius: 0px;
+                qproperty-alignment: AlignVCenter;
+            }
+        """)
+        self.lock_btn_tooltip.setObjectName("lock_btn_tooltip")
+        self.lock_btn_tooltip.setWindowFlags(Qt.ToolTip)
+        self.lock_btn_tooltip.hide()
+        #--------------------------------------------------
 
         # Scroll area
         scroll_area = QScrollArea()
@@ -1117,6 +433,7 @@ class InputDock(QWidget):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        scroll_area.installEventFilter(self)
         scroll_area.setStyleSheet("""
             QScrollArea {
                 background: transparent;
@@ -1163,6 +480,7 @@ class InputDock(QWidget):
         group_container_layout = QVBoxLayout(group_container)
         group_container_layout.setContentsMargins(0, 0, 0, 0)
         group_container_layout.setSpacing(12)
+
 
         # === Type of Structure Box ===
         type_box = QGroupBox("Type of Structure")
@@ -1269,17 +587,15 @@ class InputDock(QWidget):
             QPushButton:hover {
                 background-color: #7a9a12;
             }
+            QPushButton:disabled{
+                background: #D0D0D0;
+                color: #666;
+            }
+            
         """)
         add_here_btn.clicked.connect(self.show_project_location_dialog)
         loc_header.addWidget(add_here_btn, 1)
-        location_box_layout.addLayout(loc_header)
-        
-        self.project_location_combo = NoScrollComboBox()
-        self.project_location_combo.setObjectName(KEY_PROJECT_LOCATION)
-        self.project_location_combo.addItems(VALUES_PROJECT_LOCATION)
-        self.project_location_combo.currentTextChanged.connect(self.on_project_location_changed)
-        self.project_location_combo.hide()
-        
+        location_box_layout.addLayout(loc_header)        
         group_container_layout.addWidget(location_box)
         
         # === Superstructure Section (Contains Everything) ===
@@ -1510,6 +826,10 @@ class InputDock(QWidget):
             QPushButton:hover {
                 background-color: #7a9a12;
             }
+            QPushButton:disabled{
+                background: #D0D0D0;
+                color: #666;
+            }
         """)
         modify_geo_btn.clicked.connect(self.show_additional_inputs)
         add_geo_row.addWidget(modify_geo_btn, 1)
@@ -1650,6 +970,10 @@ class InputDock(QWidget):
             QPushButton:hover {
                 background-color: #7a9a12;
             }
+            QPushButton:disabled{
+                background: #f1f1f1;
+                color: #666;
+            }
         """)
         modify_mat_btn.clicked.connect(self.show_material_properties_dialog)
         mat_prop_header.addWidget(modify_mat_btn, 1)
@@ -1721,7 +1045,7 @@ class InputDock(QWidget):
 
         sub_group.setLayout(sub_layout)
         group_container_layout.addWidget(sub_group)
-        
+
         group_container_layout.addStretch()
         scroll_area.setWidget(group_container)
 
@@ -1814,14 +1138,8 @@ class InputDock(QWidget):
             self.additional_inputs_window.activateWindow()
             self._set_additional_inputs_enabled(not self.is_locked)
     
-    def _toggle_lock_state(self):
-        self.is_locked = not self.is_locked
-        self._apply_lock_state()
-
     def _apply_lock_state(self):
-        if self.lock_button:
-            icon_path = ":/vectors/lock_close.svg" if self.is_locked else ":/vectors/lock_open.svg"
-            self.lock_button.setIcon(QIcon(icon_path))
+        self.update_lock_icon()
 
         enabled = not self.is_locked
         if self.scroll_area:

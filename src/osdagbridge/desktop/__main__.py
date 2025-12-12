@@ -1,6 +1,7 @@
 import sys
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QFile, QTextStream
+from osdagbridge.desktop.resources import resources_rc
 
 # Import template_page
 from osdagbridge.desktop.ui.template_page import CustomWindow

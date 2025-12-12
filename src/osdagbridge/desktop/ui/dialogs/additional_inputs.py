@@ -15,7 +15,6 @@ from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 
 from osdagbridge.core.utils.common import *
-import osdagbridge.desktop.resources.resources_rc
 
 def get_combobox_style():
     """Return the common stylesheet for dropdowns with the SVG icon from resources."""

@@ -19,5 +19,6 @@
         <file>vectors/design_report.svg</file>
         <file>vectors/lock_open.svg</file>
         <file>vectors/lock_close.svg</file>
+        <file>vectors/Osdag_logo.svg</file>
     </qresource>
 </RCC>

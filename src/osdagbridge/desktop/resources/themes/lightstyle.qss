@@ -46,3 +46,97 @@ QCheckBox::indicator:checked {
     border: 1px solid #333333;
     image: url(:/vectors/checked.svg);
 }
+
+/* ==============================================
+   3. GENERAL BUTTON STYLES (Base Level)
+   ============================================== */
+QPushButton {
+    background-color: white;
+    color: black;
+    font-weight: bold; 
+    border-radius: 5px;
+    border: 1px solid black;
+    padding: 5px 14px;
+    text-align: center;
+}
+
+QPushButton:hover {
+    background-color: #90AF13;
+    border: 1px solid #90AF13;
+    color: white;
+}
+
+QPushButton:pressed {
+    color: black;
+    background-color: white;
+    border: 1px solid black;
+}
+
+QWidget#CustomTitleBar { 
+    background-color: #f4f4f4;
+}
+QLabel#TitleLabel {
+    color: #000000;
+    padding: 0px;
+    background: transparent;
+}
+QLabel#LogoLabel {
+    background: transparent;
+    color: #ffffff;
+    font-size: 14px;
+}
+
+QToolButton#MinimizeButton {
+    background-color: transparent;
+    color: #000000;
+    border: 0px;
+    border-radius: 0px;
+    font-size: 16px;
+    border-radius: 0px;
+}
+
+QToolButton#MinimizeButton:hover {
+    background-color: #f1f1f1;
+}
+
+QToolButton#MinimizeButton:pressed {
+    background-color: #a6a6a6;
+}
+
+QToolButton#MaxRestoreButton {
+    background-color: transparent;
+    color: #000000;
+    border: 0px;
+    border-radius: 0px;
+    font-size: 16px;
+    border-radius: 0px;
+}
+
+QToolButton#MaxRestoreButton:hover {
+    background-color: #f1f1f1;
+}
+
+QToolButton#MaxRestoreButton:pressed {
+    background-color: #a6a6a6;
+}
+
+QToolButton#CloseButton {
+    background-color: transparent;
+    color: #000000;
+    border: 0px;
+    border-radius: 0px;
+    font-size: 16px;
+    border-radius: 0px;
+}
+
+QToolButton#CloseButton:hover {
+    background-color: #e74c3c;
+    color: #ffffff;
+}
+
+QToolButton#CloseButton:pressed {
+    background-color: #c0392b;
+}
+QWidget#BottomLine {
+    background-color: #90AF13;
+}

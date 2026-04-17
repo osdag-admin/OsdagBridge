@@ -7,6 +7,7 @@ from PySide6.QtGui import QIcon
 
 from osdagbridge.desktop.ui.utils.custom_buttons import DockCustomButton
 from osdagbridge.core.utils.common import TYPE_TITLE
+from osdagbridge.desktop.ui.dialogs.generate_results_dialog import GenerateResultsDialog
 
 class NoScrollComboBox(QComboBox):
     def wheelEvent(self, event):
@@ -241,17 +242,24 @@ class OutputDock(QWidget):
         h_layout.setSpacing(5)
         h_layout.setContentsMargins(0, 0, 0, 0)
 
-        results_btn = DockCustomButton("Generate Results Table", ":/vectors/design_report.svg")
+        # Generate Results Table Button
+        results_btn = DockCustomButton(
+            "Generate Results Table",
+            ":/vectors/design_report.svg"
+        )
         results_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        results_btn.clicked.connect(self.open_generate_results_dialog)
         h_layout.addWidget(results_btn)
 
-        report_btn = DockCustomButton("Generate Report", ":/vectors/design_report.svg")
+        # Generate Report Button
+        report_btn = DockCustomButton(
+            "Generate Report",
+            ":/vectors/design_report.svg"
+        )
         report_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
         h_layout.addWidget(report_btn)
+
         content_layout.addLayout(h_layout)
-        
-        # Add content container to main layout
         self.main_layout.addWidget(content_container)
 
     def open_steel_design(self):
@@ -588,3 +596,11 @@ class OutputDock(QWidget):
         toggle_btn.toggled.connect(_toggle)
         group.setLayout(layout)
         return group
+    
+    def open_generate_results_dialog(self):
+        """
+        Open Generate Results Table dialog
+        """
+
+        dlg = GenerateResultsDialog()
+        dlg.exec()

@@ -1,2 +1,2 @@
 # Primary GUI dependency
-PySide6>=6.5.0
+PySide6<=6.9.3

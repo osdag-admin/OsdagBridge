@@ -479,7 +479,8 @@ class CustomWindow(QWidget):
         if empty_widgets:
             for widget, label in empty_widgets:
                 # Collecting label name to show in popup message
-                message += f" - {label.replace('\n', ' ')}\n" # Replace \n with space for better readability
+                clean_label = label.replace("\n", " ")
+                message += f" - {clean_label}\n"  # Replace \n with space for better readability
                 # Highlight widget with red color
                 widget.setProperty("error", True)
                 widget.style().unpolish(widget)

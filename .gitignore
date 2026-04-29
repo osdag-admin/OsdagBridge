@@ -253,8 +253,9 @@ src/osdag_map_cache/
 *.db
 *.sqlite
 *.sqlite3
+*/*xlsx
 
 # Project-specific ignores
-ospgrillage/
+# ospgrillage/
 temp_plot.html
 *.html

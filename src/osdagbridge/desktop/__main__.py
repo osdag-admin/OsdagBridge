@@ -1,6 +1,7 @@
+import os
 import sys
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QFile, QTextStream
+from PySide6.QtCore import QFile, QTextStream, QCoreApplication, Qt
 from osdagbridge.desktop.resources import resources_rc
 
 # Create Intg_osdag.sqlite if not Exist

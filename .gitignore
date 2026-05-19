@@ -1,7 +1,8 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+*/__pycache__/
 *.py[codz]
 *$py.class
+*/.vscode/*
 
 # C extensions
 *.so
@@ -50,6 +51,37 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+
+# Type Checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Documentation
+docs/_build/
+/site
+site/
+
+# Jupyter / IPython
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# Web / Flask / Django / Scrapy
+instance/
+.webassets-cache
+.scrapy
+local_settings.py
+
+# Project-specific temp files
+temp_plot.html
+*.html
+mat_lib.json
+src/osdag_map_cache/
+/osdag_map_cache/
 
 # Translations
 *.mo
@@ -125,7 +157,7 @@ ipython_config.py
 .pixi
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
+*/__pypackages__/
 
 # Celery stuff
 celerybeat-schedule
@@ -143,6 +175,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+osdagbridge-env/
+
 
 # Spyder project settings
 .spyderproject
@@ -173,7 +207,8 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
+
 
 # Abstra
 # Abstra is an AI-powered process automation framework.
@@ -186,7 +221,7 @@ cython_debug/
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #  and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #  you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 
 # Ruff stuff:
 .ruff_cache/
@@ -201,7 +236,26 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# macOS
+.DS_Store
+**/.DS_Store
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Map Tile Cache
+src/osdag_map_cache/
+/osdag_map_cache/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+!src/osdagbridge/core/data/ResourceFiles/Intg_osdag.sqlite
+
+# Project-specific ignores
+ospgrillage/
+temp_plot.html
+*.html

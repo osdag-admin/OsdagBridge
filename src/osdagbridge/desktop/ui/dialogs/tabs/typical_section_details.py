@@ -22,6 +22,13 @@ from osdagbridge.desktop.ui.dialogs.tabs.sub_tabs.typical_section.median_tab imp
 from osdagbridge.desktop.ui.dialogs.tabs.sub_tabs.typical_section.railing_tab import RailingTab
 from osdagbridge.desktop.ui.dialogs.tabs.sub_tabs.typical_section.wearing_course_tab import WearingCourseTab
 from osdagbridge.desktop.ui.dialogs.tabs.sub_tabs.typical_section.lane_details_tab import LaneDetailsTab
+from osdagbridge.desktop.ui.docks.cad_cross_section import CrossSectionCADWidget
+from osdagbridge.desktop.cad.irc5_geometry import (
+    CrashBarrierGeometry,
+    MedianGeometry,
+    RailingGeometry,
+)
+
 
 
 def _styled_message_box(icon, title, text, parent=None):
@@ -80,7 +87,8 @@ class TypicalSectionDetailsTab(QWidget):
     footpath_changed = Signal(str)
     girder_count_changed = Signal(int)
 
-    def __init__(self, footpath_value="None", carriageway_width=7.5, parent=None):
+    def __init__(self, footpath_value="None", carriageway_width=7.5, parent=None, initial_cad_state=None):
+        self._initial_cad_state = initial_cad_state or {}
         super().__init__(parent)
         self.footpath_value = footpath_value
         self.carriageway_width = carriageway_width
@@ -94,11 +102,14 @@ class TypicalSectionDetailsTab(QWidget):
         self._last_girders_value: int | None = None
         self.crash_barrier_count = 2  # Assume two crash barriers at carriageway edges
         self.overall_bridge_width_formula = (
-            "OverallBridgeWidth = CrossSectionLayout.total_width = CarriagewayWidth + "
+            "OverallBridgeWidth = CrossSectionLayout.total_width = (2 x CarriagewayWidth if Median else CarriagewayWidth) + "
             "2 x CrashBarrierWidth + MedianWidth + (NoOfFootpaths x FootpathWidth) + "
             "(NoOfFootpaths x RailingWidth)"
         )
         self.init_ui()
+        # Apply homepage CAD state so the preview starts in sync
+        if self._initial_cad_state:
+            self.cad_preview.update_params(self._initial_cad_state)
 
     def style_input_field(self, field):
         apply_field_style(field)
@@ -155,27 +166,30 @@ class TypicalSectionDetailsTab(QWidget):
                 border-radius: 8px;
             }
         """)
-        diagram_widget.setMinimumHeight(150)
-        diagram_widget.setMaximumHeight(200)
-        diagram_layout = QVBoxLayout(diagram_widget)
-        diagram_layout.setContentsMargins(20, 20, 20, 20)
-        diagram_layout.setAlignment(Qt.AlignCenter)
+        diagram_widget.setMinimumHeight(280)
+        diagram_widget.setMaximumHeight(380)
 
-        diagram_label = QLabel("Typical Section Details\nDiagram")
-        diagram_label.setAlignment(Qt.AlignCenter)
-        diagram_label.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                border: none;
-                padding: 20px;
-                font-size: 13px;
-                color: #333;
-            }
-        """)
-        diagram_layout.addWidget(diagram_label)
+        diagram_layout = QVBoxLayout(diagram_widget)
+        diagram_layout.setContentsMargins(5, 5, 5, 5)
+
+        # --- Cross Section CAD Preview ---
+        from osdagbridge.desktop.ui.docks.cad_cross_section import CrossSectionCADWidget
+
+        cad_scroll = QScrollArea()
+        cad_scroll.setWidgetResizable(True)
+        cad_scroll.setFrameShape(QFrame.NoFrame)
+        cad_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        self.cad_preview = CrossSectionCADWidget()
+        self.cad_preview.scale_factor = 0.65
+        self.cad_preview.setMinimumHeight(200) 
+
+        cad_scroll.setWidget(self.cad_preview)
+        diagram_layout.addWidget(cad_scroll)
 
         main_layout.addWidget(diagram_widget)
         main_layout.addSpacing(10)
+
 
         input_container = QWidget()
         input_container.setStyleSheet("QWidget { background-color: white; }")
@@ -201,6 +215,11 @@ class TypicalSectionDetailsTab(QWidget):
                 font-size: 11px;
                 min-width: 80px;
             }
+            QTabBar::tab:disabled {
+                color: #bfbfbf;
+                background: #e6e6e6;
+            }
+
             QTabBar::tab:last {
                 border-right: 1px solid #b0b0b0;
             }
@@ -233,7 +252,35 @@ class TypicalSectionDetailsTab(QWidget):
 
         self.lane_details_tab = LaneDetailsTab(self)
         self.input_tabs.addTab(self.lane_details_tab, "Lane Details")
+        
+        # CONNECT COMBO BOXES TO IRC DEFAULT HANDLERS
 
+        if hasattr(self, "crash_barrier_type"):
+            self.crash_barrier_type.currentTextChanged.connect(
+                self.on_crash_barrier_type_changed
+            )
+
+        # CONNECT MEDIAN TAB DROPDOWN
+        if hasattr(self.median_tab, "median_type"):
+            self.median_tab.median_type.currentTextChanged.connect(
+                self.on_median_type_changed
+            )
+
+        # CONNECT RAILING TAB DROPDOWN
+        if hasattr(self.railing_tab, "railing_type"):
+            self.railing_tab.railing_type.currentTextChanged.connect(
+                self.on_railing_type_changed
+            )
+
+        if hasattr(self, "wearing_thickness"):
+            self.wearing_thickness.editingFinished.connect(self._update_cad_preview)
+
+        if hasattr(self, "wearing_density"):
+            self.wearing_density.editingFinished.connect(self._update_cad_preview)
+
+        if hasattr(self, "wearing_material"):
+            self.wearing_material.currentTextChanged.connect(self._update_cad_preview)
+            
         input_layout.addWidget(self.input_tabs)
         main_layout.addWidget(input_container)
 
@@ -242,6 +289,21 @@ class TypicalSectionDetailsTab(QWidget):
 
         self.deck_thickness.textChanged.connect(self.update_footpath_thickness)
         self.recalculate_girders()
+        
+        # Update CAD when fields change
+        if hasattr(self, "girder_spacing"):
+            self.girder_spacing.editingFinished.connect(self._update_cad_preview)
+        if hasattr(self, "no_of_girders"):
+            self.no_of_girders.editingFinished.connect(self._update_cad_preview)
+        if hasattr(self, "deck_overhang"):
+            self.deck_overhang.editingFinished.connect(self._update_cad_preview)
+        if hasattr(self, "deck_thickness"):
+            self.deck_thickness.editingFinished.connect(self._update_cad_preview)
+        if hasattr(self, "footpath_width"):
+            self.footpath_width.editingFinished.connect(self._update_cad_preview)
+        if hasattr(self, "footpath_thickness"):
+            self.footpath_thickness.editingFinished.connect(self._update_cad_preview)
+
         # Initialize crash barrier visibility/load state
         if hasattr(self, "crash_barrier_type"):
             barrier_type = self.crash_barrier_type.currentText()
@@ -260,11 +322,118 @@ class TypicalSectionDetailsTab(QWidget):
                 self.girder_count_changed.emit(int(self.no_of_girders.text()))
         except Exception:
             pass
+        
+    def _update_cad_preview(self):
+        """
+        @author: Faizan
+        Collect all current UI field values — girder count, girder spacing,
+        deck overhang, deck thickness etc.
+        — convert units to millimetres where required, and push the assembled
+        params dict to CrossSectionCADWidget.update_params() to trigger an
+        immediate redraw of the 2D cross-section.
+        """
+
+        if not hasattr(self, 'cad_preview'):
+            return
+
+        params = {}
+
+        # Carriageway Width (always needed for overall width calculation in CAD)
+        if hasattr(self, "carriageway_width"):
+            params['carriageway_width'] = float(self.carriageway_width) * 1000
+
+        # Footpath Config
+        if hasattr(self, "footpath_value"):
+            fp_map = {
+                "Both Sides": "both",
+                "Single Side": "left",
+                "None": "none"
+            }
+            params['footpath_config'] = fp_map.get(self.footpath_value, "none")
+
+        if hasattr(self, "no_of_girders") and self.no_of_girders.text():
+            params['num_girders'] = int(float(self.no_of_girders.text()))
+
+        if hasattr(self, "girder_spacing") and self.girder_spacing.text():
+            params['girder_spacing'] = float(self.girder_spacing.text()) * 1000
+
+        if hasattr(self, "deck_overhang") and self.deck_overhang.text():
+            params['deck_overhang'] = float(self.deck_overhang.text()) * 1000
+
+        if hasattr(self, "deck_thickness") and self.deck_thickness.text():
+            params['deck_thickness'] = float(self.deck_thickness.text())
+
+        if hasattr(self, "footpath_width") and self.footpath_width.text():
+            params['footpath_width'] = float(self.footpath_width.text()) * 1000
+
+        if hasattr(self, "footpath_thickness") and self.footpath_thickness.text():
+            params['footpath_thickness'] = float(self.footpath_thickness.text())
+            
+        if hasattr(self, "crash_barrier_type"):
+            ui_cb_type = self.crash_barrier_type.currentText()
+            params["crash_barrier_type"] = ui_cb_type
+            
+        # ---- Wearing Course ----
+        if hasattr(self, "wearing_thickness") and self.wearing_thickness.text():
+            wearing_thickness = float(self.wearing_thickness.text())
+            params[KEY_WEARING_COAT_THICKNESS] = wearing_thickness
+            params["wearing_course_thickness"] = wearing_thickness
+
+        if hasattr(self, "wearing_density") and self.wearing_density.text():
+            wearing_density = float(self.wearing_density.text())
+            params[KEY_WEARING_COAT_DENSITY] = wearing_density
+            params["wearing_course_density"] = wearing_density
+
+        if hasattr(self, "wearing_material"):
+            wearing_material = self.wearing_material.currentText()
+            params[KEY_WEARING_COAT_MATERIAL] = wearing_material
+            params["wearing_course_material"] = wearing_material
+        
+        # ---- Median ----
+        if hasattr(self, "median_type"):
+            params["median_type"] = self.median_type.currentText()
+
+        if hasattr(self, "median_width") and self.median_width.text():
+            params["median_width"] = float(self.median_width.text()) * 1000
+
+        if hasattr(self, "median_height") and self.median_height.text():
+            params["median_height"] = float(self.median_height.text()) * 1000
+            
+        # ---- Crash Barrier ----
+        if hasattr(self, "crash_barrier_width") and self.crash_barrier_width.text():
+            params["crash_barrier_width"] = float(self.crash_barrier_width.text()) * 1000
+
+        if hasattr(self, "crash_barrier_height") and self.crash_barrier_height.text():
+            params["crash_barrier_height"] = float(self.crash_barrier_height.text()) * 1000
+
+        # ---- Railing ----
+
+        if hasattr(self, "railing_type"):
+            params["railing_type"] = self.railing_type.currentText()
+
+        if hasattr(self, "railing_width") and self.railing_width.text():
+            params["railing_width"] = float(self.railing_width.text())
+
+        if hasattr(self, "railing_height") and self.railing_height.text():
+            params["railing_height"] = float(self.railing_height.text()) * 1000
+            
+        # ---- Median presence ----
+        if hasattr(self, "median_tab"):
+            median_idx = self.input_tabs.indexOf(self.median_tab)
+            is_median_enabled = self.input_tabs.isTabEnabled(median_idx)
+            params["median_present"] = is_median_enabled
+        elif hasattr(self, "median_type"):
+            params["median_present"] = self.median_type.currentText() != "None"
+
+        if params:
+            self.cad_preview.update_params(params)
+
+    
 
     def _get_footpath_count(self):
-        if self.footpath_value == "Both":
+        if self.footpath_value == "Both Sides":
             return 2
-        if self.footpath_value == "Single Sided":
+        if self.footpath_value == "Single Side":
             return 1
         return 0
 
@@ -825,6 +994,23 @@ class TypicalSectionDetailsTab(QWidget):
             old_overhang = overhang_input
             old_spacing = spacing_input
 
+            # If the selected number of girders cannot fit within the current
+            # overall bridge width, clamp to the maximum feasible count.
+            # With minimum spacing and non-negative overhang:
+            # overall_width >= (n-1) * spacing_min  =>  n_max = floor(overall_width/spacing_min) + 1
+            try:
+                spacing_min = float(spacing_bounds[0])
+            except Exception:
+                spacing_min = 1.0
+            if spacing_min <= 0:
+                spacing_min = 1.0
+            n_max = int(math.floor((overall_width + 1e-9) / spacing_min) + 1)
+            n_max = max(2, n_max)
+            if n > n_max:
+                # Clamp and proceed with a valid solution rather than leaving
+                # the UI with an impossible n value.
+                n = n_max
+
             # For n >= 2: overall_width = 2*overhang + (n-1)*spacing
             # Keep n fixed, try to find spacing and overhang such that overhang is in ideal range
             # Ideal overhang = 0.35 to 0.5 of spacing
@@ -845,7 +1031,24 @@ class TypicalSectionDetailsTab(QWidget):
             
             # Check if overhang is within valid range
             if overhang_use < o_min - 1e-6 or overhang_use > o_max + 1e-6:
-                show_warning(self, "Layout", "Cannot satisfy constraints with the selected number of girders.")
+                show_warning(
+                    self,
+                    "Layout",
+                    "Cannot satisfy constraints with the selected number of girders. "
+                    f"For the current overall width ({overall_width:.2f} m) and minimum spacing ({spacing_min:.2f} m), "
+                    f"maximum feasible girders is {n_max}.",
+                )
+                # Revert to a safe fallback (previous value if available, else 2)
+                fallback_n = int(getattr(self, "_last_girders_value", 2) or 2)
+                fallback_n = max(2, min(fallback_n, n_max))
+                pick = self._pick_n_for_spacing(overall_width, spacing_use, spacing_bounds)
+                if pick:
+                    _, fallback_n2, spacing_f, overhang_f = pick
+                    fallback_n = max(2, min(int(fallback_n2), n_max))
+                    self._set_layout_fields(spacing_f, overhang_f, fallback_n)
+                else:
+                    self._set_layout_fields(self._clamp(spacing_use, *spacing_bounds), self._clamp(max(0.0, overhang_use), o_min, o_max), fallback_n)
+                self._update_overall_bridge_width_display()
                 return
             
             self._set_layout_fields(spacing_use, overhang_use, n)
@@ -854,6 +1057,8 @@ class TypicalSectionDetailsTab(QWidget):
                 reason_parts.append(f"spacing {old_spacing:.2f}→{spacing_use:.2f}")
             if abs(overhang_use - old_overhang) > 1e-6:
                 reason_parts.append(f"overhang {old_overhang:.2f}→{overhang_use:.2f}")
+            if girders_input is not None and n != girders_input:
+                reason_parts.append(f"girders {girders_input}→{n}")
             
             # Check if overhang exceeds girder spacing and show warning
             warning_msg = None
@@ -966,9 +1171,9 @@ class TypicalSectionDetailsTab(QWidget):
         is_metallic = self._is_metallic_barrier(barrier_type)
         is_custom = barrier_type == "Custom"
 
-        default_density = DEFAULT_CONCRETE_DENSITY  # kN/m3
-        default_width = f"{DEFAULT_CRASH_BARRIER_WIDTH}"  # m
-        default_height = "0.75"  # m
+        effective_barrier_type = self._effective_crash_barrier_type(barrier_type)
+        geom = CrashBarrierGeometry.get_geometry(effective_barrier_type)
+     
 
         def _set(widget, value: str):
             if widget is None:
@@ -976,10 +1181,15 @@ class TypicalSectionDetailsTab(QWidget):
             if force or not widget.text():
                 widget.setText(value)
 
-        if is_rcc:
-            _set(self.crash_barrier_density, f"{default_density:.1f}")
-            _set(self.crash_barrier_width, default_width)
-            _set(self.crash_barrier_height, default_height)
+        if is_rcc and geom:
+            _set(self.crash_barrier_density, f"{DEFAULT_CONCRETE_DENSITY:.1f}")
+
+            if "bottom_width" in geom:
+                _set(self.crash_barrier_width, f"{geom['bottom_width'] / 1000:.2f}")
+
+
+            if "total_height" in geom:
+                _set(self.crash_barrier_height, f"{geom['total_height'] / 1000:.2f}")
             if self.crash_barrier_width and self.crash_barrier_height:
                 try:
                     w_val = float(self.crash_barrier_width.text() or 0.0)
@@ -995,21 +1205,39 @@ class TypicalSectionDetailsTab(QWidget):
             if force and self.crash_barrier_load:
                 self.crash_barrier_load.clear()
         elif is_custom:
+            if geom:
+                if "bottom_width" in geom:
+                    _set(self.crash_barrier_width, f"{geom['bottom_width'] / 1000:.2f}")
+                if "total_height" in geom:
+                    _set(self.crash_barrier_height, f"{geom['total_height'] / 1000:.2f}")
             if force and self.crash_barrier_load:
                 self.crash_barrier_load.clear()
 
         self._update_crash_barrier_visibility(barrier_type)
+        # ----  CAD UPDATE AFTER DEFAULTS CHANGE ----
+        if hasattr(self, "cad_preview"):
+            params = {
+                "crash_barrier_type": barrier_type,
+            }
+
+            if self.crash_barrier_width and self.crash_barrier_width.text():
+                params["crash_barrier_width"] = float(self.crash_barrier_width.text()) * 1000
+
+            if self.crash_barrier_height and self.crash_barrier_height.text():
+                params["crash_barrier_height"] = float(self.crash_barrier_height.text()) * 1000
+
+            self.cad_preview.update_params(params)
 
     def _apply_median_defaults(self, median_type: str, force: bool = False):
         if not hasattr(self, "median_density"):
             return
+
         is_rcc = self._is_rcc_median(median_type)
         is_metallic = self._is_metallic_median(median_type)
         is_custom = median_type == "Custom"
 
-        default_density = DEFAULT_CONCRETE_DENSITY  # kN/m3
-        default_width = f"{DEFAULT_CRASH_BARRIER_WIDTH}"  # m
-        default_height = "0.75"  # m
+        effective_median_type = self._effective_median_type(median_type)
+        geom = MedianGeometry.get_geometry(effective_median_type)
 
         def _set(widget, value: str):
             if widget is None:
@@ -1017,16 +1245,22 @@ class TypicalSectionDetailsTab(QWidget):
             if force or not widget.text():
                 widget.setText(value)
 
-        if is_rcc:
-            _set(self.median_density, f"{default_density:.1f}")
-            _set(self.median_width, default_width)
-            _set(self.median_height, default_height)
+        if is_rcc and geom:
+            _set(self.median_density, f"{DEFAULT_CONCRETE_DENSITY:.1f}")
+
+            if "median_width" in geom:
+                _set(self.median_width, f"{geom['median_width'] / 1000:.2f}")
+
+            if "barrier_height" in geom:
+                _set(self.median_height, f"{geom['barrier_height'] / 1000:.2f}")
+            elif "kerb_height" in geom:
+                _set(self.median_height, f"{geom['kerb_height'] / 1000:.2f}")
+
             if self.median_width and self.median_height:
                 try:
-                    w_val = float(self.median_width.text() or 0.0)
-                    h_val = float(self.median_height.text() or 0.0)
-                    area_val = w_val * h_val
-                    _set(self.median_area, f"{area_val:.2f}")
+                    w = float(self.median_width.text())
+                    h = float(self.median_height.text())
+                    _set(self.median_area, f"{w * h:.2f}")
                 except:
                     pass
             self._auto_compute_median_load()
@@ -1036,14 +1270,56 @@ class TypicalSectionDetailsTab(QWidget):
             if force and self.median_load:
                 self.median_load.clear()
         elif is_custom:
+            if geom:
+                if "median_width" in geom:
+                    _set(self.median_width, f"{geom['median_width'] / 1000:.2f}")
+                if "barrier_height" in geom:
+                    _set(self.median_height, f"{geom['barrier_height'] / 1000:.2f}")
+                elif "kerb_height" in geom:
+                    _set(self.median_height, f"{geom['kerb_height'] / 1000:.2f}")
             if force and self.median_load:
                 self.median_load.clear()
 
         self._update_median_visibility(median_type, include_median=True)
 
+        geom = MedianGeometry.get_geometry(effective_median_type)
+
+        params = {
+            "median_type": median_type,
+        }
+
+        if geom:
+            if "median_width" in geom:
+                params["median_width"] = geom["median_width"]
+
+            if "barrier_height" in geom:
+                params["median_height"] = geom["barrier_height"]
+            elif "kerb_height" in geom:
+                params["median_height"] = geom["kerb_height"]
+
+            self.cad_preview.update_params(params)
+            
+        if hasattr(self, "cad_preview"):
+            params = {
+                "median_present": True,
+                "median_type": median_type,
+            }
+
+            if self.median_width and self.median_width.text():
+                params["median_width"] = float(self.median_width.text()) * 1000
+
+            if self.median_height and self.median_height.text():
+                params["median_height"] = float(self.median_height.text()) * 1000
+
+            self.cad_preview.update_params(params)
+
     def _apply_railing_defaults(self, force: bool = False):
         if not hasattr(self, "railing_type"):
             return
+
+        railing_type = self.railing_type.currentText()
+        effective_railing_type = self._effective_railing_type(railing_type)
+        geom = RailingGeometry.get_geometry(effective_railing_type)
 
         def _set(widget, value: str):
             if widget is None:
@@ -1051,14 +1327,47 @@ class TypicalSectionDetailsTab(QWidget):
             if force or not widget.text():
                 widget.setText(value)
 
-        _set(self.railing_width, f"{DEFAULT_RAILING_WIDTH * 1000:.0f}")
-        _set(self.railing_height, f"{MIN_RAILING_HEIGHT:.2f}")
+        if geom:
+            if "width" in geom:
+                _set(self.railing_width, f"{geom['width']:.0f}")
+
+            if "height" in geom:
+                _set(self.railing_height, f"{geom['height'] / 1000:.2f}")
+
         if hasattr(self, "railing_load_mode"):
+            self.railing_load_mode.blockSignals(True)
             self.railing_load_mode.setCurrentText("Automatic (IRC 6)")
-            self.on_railing_load_mode_changed(self.railing_load_mode.currentText())
+            self.railing_load_mode.blockSignals(False)
+
+            # Manually apply once
+            self.on_railing_load_mode_changed("Automatic (IRC 6)")
+
+        geom = RailingGeometry.get_geometry(effective_railing_type)
+
+        params = {
+            "railing_type": railing_type,
+        }
+
+        if geom:
+            if "height" in geom:
+                params["railing_height"] = geom["height"]
+
+            if "width" in geom:
+                params["railing_width"] = geom["width"]
+
+            self.cad_preview.update_params(params)
 
     def _is_metallic_barrier(self, barrier_type):
         return barrier_type.startswith("IRC 5 - Metallic Crash Barrier")
+
+    def _effective_crash_barrier_type(self, barrier_type):
+        return "IRC 5 - RCC Crash Barrier" if barrier_type == "Custom" else barrier_type
+
+    def _effective_median_type(self, median_type):
+        return "IRC 5 - Raised Kerb" if median_type == "Custom" else median_type
+
+    def _effective_railing_type(self, railing_type):
+        return "IRC 5 - RCC Railing" if railing_type == "Custom" else railing_type
 
     def _is_rcc_barrier(self, barrier_type):
         return (
@@ -1114,8 +1423,24 @@ class TypicalSectionDetailsTab(QWidget):
                 self.median_load.clear()
 
     def on_median_type_changed(self, median_type):
-        self._update_median_visibility(median_type, include_median=True)
-        self._apply_median_defaults(median_type)
+        print(f"Median type changed to: {median_type}")
+        self._apply_median_defaults(median_type, force=True)
+
+        if hasattr(self, "cad_preview"):
+            params = {"median_type": median_type}
+            self.cad_preview.update_params(params)
+
+        self.recalculate_girders()
+        
+    def on_railing_type_changed(self, railing_type):
+        print(f"Railing type changed to: {railing_type}")
+        self._apply_railing_defaults(force=True)
+
+        if hasattr(self, "cad_preview"):
+            params = {"railing_type": railing_type}
+            self.cad_preview.update_params(params)
+
+        self.recalculate_girders()
 
     def _update_median_visibility(self, median_type, include_median=True):
         is_metallic = self._is_metallic_median(median_type)
@@ -1209,6 +1534,8 @@ class TypicalSectionDetailsTab(QWidget):
     def recalculate_girders(self):
         self._update_overall_bridge_width_display()
         self._solve_layout("width")
+        self._update_cad_preview()
+
 
     def on_girder_spacing_changed(self):
         if self.updating_fields:
@@ -1327,11 +1654,22 @@ class TypicalSectionDetailsTab(QWidget):
 
     def on_crash_barrier_type_changed(self, barrier_type):
         if (barrier_type in ["Flexible", "Semi-Rigid"]) and (self.footpath_value == "None"):
-            show_critical(self, "Crash Barrier Type Not Permitted",
-                                 f"{barrier_type} crash barriers are not permitted on bridges without an outer footpath per IRC 5 Clause 109.6.4.")
-        # Apply new visibility and load rules
+            show_critical(
+                self,
+                "Crash Barrier Type Not Permitted",
+                f"{barrier_type} crash barriers are not permitted on bridges without an outer footpath per IRC 5 Clause 109.6.4.",
+            )
+
+        # IMPORTANT: force=True so layout recalculation cannot override geometry
         self._update_crash_barrier_visibility(barrier_type)
-        self._apply_crash_barrier_defaults(barrier_type)
+        self._apply_crash_barrier_defaults(barrier_type, force=True)
+
+        # Recalculate AFTER geometry is locked
+        self.recalculate_girders()
+
+        # Refresh CAD preview to show the newly selected barrier shape
+        self._update_cad_preview()
+
 
     def on_railing_load_mode_changed(self, mode):
         if not hasattr(self, "railing_load_value"):

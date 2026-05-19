@@ -1,0 +1,609 @@
+"""
+IRC bridge deck slab design module.
+
+Design pipeline:
+  1. Read bridge parameters from the backend.
+  2. Resolve concrete / rebar properties via IRC 22:2015 Annex III.
+  3. Fetch impact factor from IRC 6:2017 Cl.208.2 / 208.3.
+  4. Fetch ULS partial safety factors from IRC 6:2017 Table B.2.
+  5. Compute dead-load and live-load moments (effective-width method, IRC 21 Cl.305.16).
+  6. Design transverse reinforcement (bottom sagging + top hogging).
+  7. Verify moment capacity.
+  8. Return a dict compatible with DeckDesign.load_data().
+"""
+
+from __future__ import annotations
+
+import math
+
+from osdagbridge.core.utils.codes.irc6_2017 import IRC6_2017
+from osdagbridge.core.utils.codes.irc22_2015 import IRC22_2014
+from osdagbridge.core.utils.codes.keyfile import KEY_VEHICLE
+
+# ── constants ─────────────────────────────────────────────────────────────────
+_GAMMA_CONCRETE_KN_M3 = 25.0          # kN/m³ — IRC 6:2017 Cl.203
+_STANDARD_DIAS_MM = [8, 10, 12, 16, 20, 25, 32]
+_SPACING_MAX_MM = 300.0
+_SPACING_MIN_MM = 75.0
+_SPACING_ROUND_MM = 5.0               # round spacing down to nearest 5 mm
+
+
+# ── material helpers ──────────────────────────────────────────────────────────
+
+def _concrete_props(grade: str) -> dict:
+    """Return fck (MPa) and fctm (MPa) from IRC 22:2015 Annex III."""
+    table = IRC22_2014.cl_602_annexIII_concrete_properties()
+    key = grade.strip().upper()
+    if key not in table:
+        key = "M30"                    # safe fallback
+    return {"fck": float(table[key]["fck"]), "fctm": float(table[key]["fctm"])}
+
+
+def _rebar_fy(grade: str) -> float:
+    """Return yield strength (MPa) for a rebar grade string (e.g. 'Fe 500')."""
+    table = IRC22_2014.cl_602_annexIII_reinforcement_steel_properties()
+    normalized = grade.replace(" ", "")  # "Fe 500" → "Fe500"
+    if normalized in table:
+        return float(table[normalized]["fy"])
+    return 500.0                        # default Fe 500
+
+
+# ── structural mechanics helpers ──────────────────────────────────────────────
+
+def _moment_capacity_kNm(fy_MPa: float, As_mm2: float, d_mm: float,
+                         fck_MPa: float, b_mm: float = 1000.0) -> float:
+    """
+    Moment capacity per m width (kNm/m) for a singly reinforced RC section.
+    IS 456 / IRC 112 simplified stress-block:
+        xu = 0.87 fy As / (0.36 fck b)
+        Mu = 0.87 fy As (d - 0.42 xu)
+    """
+    xu = (0.87 * fy_MPa * As_mm2) / (0.36 * fck_MPa * b_mm)
+    Mu_Nmm = 0.87 * fy_MPa * As_mm2 * (d_mm - 0.42 * xu)
+    return Mu_Nmm / 1.0e6
+
+
+def _required_steel_mm2(M_ULS_kNm: float, fy_MPa: float, d_mm: float,
+                         fck_MPa: float, b_mm: float = 1000.0) -> float:
+    """
+    Solve for minimum As (mm²/m) from the quadratic form of the moment equation.
+    Returns 0 if M_ULS ≤ 0.
+    """
+    if M_ULS_kNm <= 0:
+        return 0.0
+    M_Nmm = M_ULS_kNm * 1.0e6
+    # (0.87fy)²/(0.36 fck b) · As² - (0.87 fy d) · As + M = 0
+    a = (0.87 * fy_MPa) ** 2 / (0.36 * fck_MPa * b_mm)
+    b = 0.87 * fy_MPa * d_mm
+    disc = b ** 2 - 4.0 * a * M_Nmm
+    if disc < 0:
+        return float("inf")            # over-stressed — thickness must increase
+    return (b - math.sqrt(disc)) / (2.0 * a)
+
+
+def _min_steel_mm2(fctm_MPa: float, fy_MPa: float, d_mm: float,
+                   b_mm: float = 1000.0) -> float:
+    """IRC 112 Cl.16.5.1 minimum reinforcement (mm²/m)."""
+    As_min = 0.26 * (fctm_MPa / fy_MPa) * b_mm * d_mm
+    return max(As_min, 0.0013 * b_mm * d_mm)
+
+
+def _pick_rebar(As_req_mm2: float) -> tuple[float, float, float]:
+    """
+    Choose the smallest standard bar diameter and round-down spacing
+    such that As_provided ≥ As_req.
+    Returns (dia_mm, spacing_mm, As_prov_mm2_per_m).
+    """
+    for dia in _STANDARD_DIAS_MM:
+        a_bar = math.pi * dia ** 2 / 4.0
+        spacing = a_bar * 1000.0 / As_req_mm2
+        spacing = min(spacing, _SPACING_MAX_MM)
+        spacing = max(spacing, _SPACING_MIN_MM)
+        # round down to nearest _SPACING_ROUND_MM
+        spacing = math.floor(spacing / _SPACING_ROUND_MM) * _SPACING_ROUND_MM
+        spacing = max(spacing, _SPACING_MIN_MM)
+        As_prov = a_bar * 1000.0 / spacing
+        if As_prov >= As_req_mm2:
+            return dia, spacing, As_prov
+    # fallback: largest bar at minimum spacing
+    dia = _STANDARD_DIAS_MM[-1]
+    a_bar = math.pi * dia ** 2 / 4.0
+    spacing = _SPACING_MIN_MM
+    return dia, spacing, a_bar * 1000.0 / spacing
+
+
+# ── SLS helpers ───────────────────────────────────────────────────────────────
+
+def _cracked_section(As_mm2: float, d_mm: float, fck_MPa: float,
+                     b_mm: float = 1000.0) -> tuple:
+    """
+    Cracked-section neutral axis depth x (mm), I_cr (mm⁴), and αe = Es/Ecm.
+    Ecm per IRC 112:2020 Cl.6.4.2.3 — 22·(fck/10)^0.3 GPa.
+    Solves b/2·x² + αe·As·x − αe·As·d = 0.
+    """
+    Es = 200_000.0
+    Ecm = 22_000.0 * (fck_MPa / 10.0) ** 0.3
+    alpha_e = Es / Ecm
+    A = b_mm / 2.0
+    B = alpha_e * As_mm2
+    C = -alpha_e * As_mm2 * d_mm
+    x = (-B + math.sqrt(B**2 - 4.0 * A * C)) / (2.0 * A)
+    I_cr = b_mm * x**3 / 3.0 + alpha_e * As_mm2 * (d_mm - x) ** 2
+    return x, I_cr, alpha_e
+
+
+def _sls_stress(M_SLS_kNm: float, As_mm2: float, d_mm: float,
+                fck_MPa: float, fy_MPa: float, b_mm: float = 1000.0) -> dict:
+    """
+    IRC 112:2020 Cl.12.2.1 — SLS stress check (characteristic combination).
+    Limits: σc ≤ 0.48·fck, σs ≤ 0.80·fyk.
+    """
+    x, I_cr, alpha_e = _cracked_section(As_mm2, d_mm, fck_MPa, b_mm)
+    M_Nmm = M_SLS_kNm * 1.0e6
+    sigma_c = M_Nmm * x / I_cr
+    sigma_s = M_Nmm * (d_mm - x) * alpha_e / I_cr
+    sc_lim = 0.48 * fck_MPa
+    ss_lim = 0.80 * fy_MPa
+    return {
+        "x": x,
+        "sigma_c": sigma_c, "sc_lim": sc_lim, "sc_ok": sigma_c <= sc_lim,
+        "sigma_s": sigma_s, "ss_lim": ss_lim, "ss_ok": sigma_s <= ss_lim,
+        "ok": sigma_c <= sc_lim and sigma_s <= ss_lim,
+    }
+
+
+def _sls_crack_width(M_SLS_kNm: float, As_mm2: float, dia_mm: float,
+                     d_mm: float, h_mm: float, cover_mm: float,
+                     fck_MPa: float, fctm_MPa: float,
+                     b_mm: float = 1000.0) -> dict:
+    """
+    IRC 112:2020 Cl.12.3.4 — crack width check (frequent combination).
+    wk limit = 0.3 mm (exposure XS2/XD2 for bridge decks).
+    x and d are both measured from the compressive face, so this function
+    works identically for sagging (compressive face = top) and hogging
+    (compressive face = bottom).
+    """
+    Es = 200_000.0
+    x, I_cr, alpha_e = _cracked_section(As_mm2, d_mm, fck_MPa, b_mm)
+    M_Nmm = M_SLS_kNm * 1.0e6
+    sigma_s = M_Nmm * (d_mm - x) * alpha_e / I_cr
+    # Effective tension area depth (measured from tensile face)
+    Ac_eff = (
+        min(2.5 * (cover_mm + dia_mm / 2.0), (h_mm - x) / 3.0, h_mm / 2.0) * b_mm
+    )
+    rho_p_eff = As_mm2 / Ac_eff
+    # Maximum crack spacing — IRC 112:2020 Cl.12.3.4
+    k1, k2, k3, k4 = 0.8, 0.5, 3.4, 0.425
+    Sr_max = k3 * cover_mm + k1 * k2 * k4 * dia_mm / rho_p_eff
+    # Mean strain difference (long-term, kt = 0.5)
+    kt = 0.5
+    eps_diff = max(
+        (sigma_s - kt * (fctm_MPa / rho_p_eff) * (1.0 + alpha_e * rho_p_eff)) / Es,
+        0.6 * sigma_s / Es,
+    )
+    wk = Sr_max * eps_diff   # mm
+    wk_lim = 0.3
+    return {
+        "sigma_s": sigma_s, "x": x, "rho_p_eff": rho_p_eff,
+        "Sr_max": Sr_max, "eps_diff": eps_diff, "wk": wk, "wk_lim": wk_lim,
+        "ok": wk <= wk_lim,
+    }
+
+
+# ── governing vehicle ─────────────────────────────────────────────────────────
+
+def _governing_vehicle(carriageway_width_m: float) -> str:
+    """
+    Return the governing vehicle class based on IRC 6:2017 Table 6A.
+    Class 70R(W) governs when at least one 70R lane fits; Class A otherwise.
+    """
+    result = IRC6_2017.table_6A(carriageway_width_m)
+    combos = result.get("vehicle_combinations", [])
+    for combo in combos:
+        if "Class70R" in combo:
+            return KEY_VEHICLE[0]      # Class70R(W)
+    return KEY_VEHICLE[2]              # ClassA
+
+
+def _max_wheel_load_kN(vehicle_class: str) -> float:
+    """
+    Maximum single wheel load (kN) for the governing vehicle per IRC 6:2017.
+    wheel_loads are per-axle totals stored in Newtons (IRC6 unit system uses
+    t = kN*g = 9810 N); divide by 2 for per-wheel and by 1000 to get kN.
+    """
+    if vehicle_class in (KEY_VEHICLE[0], KEY_VEHICLE[1]):  # Class 70R
+        axle_loads = IRC6_2017.cl_204_1_Class70R_vehicle_wheel()["wheel_loads"]
+    else:                                                   # Class A / B
+        axle_loads = IRC6_2017.cl_204_1_ClassA_vehicle()["wheel_loads"]
+    return max(axle_loads) / 2.0 / 1000.0   # N → kN, axle → per-wheel
+
+
+def _wheel_contact_width_m(vehicle_class: str) -> float:
+    """Transverse wheel-contact width (m) for dispersion — IRC 6:2017 drawings."""
+    if vehicle_class in (KEY_VEHICLE[0], KEY_VEHICLE[1]):
+        return 0.300                   # Class 70R: 300 mm transverse contact
+    return 0.250                       # Class A:   250 mm transverse contact
+
+
+# ── main design function ──────────────────────────────────────────────────────
+
+def design_deck_slab(bridge) -> dict:
+    """
+    Design the concrete deck slab of a plate girder bridge.
+
+    Parameters
+    ----------
+    bridge : PlateGirderBridge
+        Backend instance after design() has been called.
+
+    Returns
+    -------
+    dict
+        Keys matching DeckDesign.load_data() expectations:
+        deck_grade, deck_thickness,
+        rebar_{top,bottom}_{yield,dia,spacing,cover,area},
+        deck_design_check.
+    """
+    from osdagbridge.core.utils.common import KEY_SPAN, KEY_CARRIAGEWAY_WIDTH, KEY_DECK_CONCRETE_GRADE_BASIC
+    from osdagbridge.core.bridge_components.super_structure.deck.geometry import deck_thickness_from_inputs
+    from osdagbridge.core.bridge_types.plate_girder.initial_sizing import DEFAULT_DECK_THICKNESS
+
+    # ── 1. read bridge parameters ─────────────────────────────────────────────
+    basic = getattr(bridge, "basic_inputs", {})
+    additional = getattr(bridge, "additional_inputs", {})
+    sizing = getattr(bridge, "sizing_result", None)
+
+    span_m = float(basic.get(KEY_SPAN, 30.0))
+    cw_m = float(basic.get(KEY_CARRIAGEWAY_WIDTH, 7.5))
+    concrete_grade = str(basic.get(KEY_DECK_CONCRETE_GRADE_BASIC, "M30")).strip()
+
+    # girder spacing — from sizing result or fallback
+    if sizing is not None and hasattr(sizing, "girder_spacing"):
+        beam_spacing_m = float(sizing.girder_spacing)
+    else:
+        beam_spacing_m = 2.5           # sensible default
+
+    deck_t_mm = deck_thickness_from_inputs(additional, DEFAULT_DECK_THICKNESS) * 1000.0
+
+    rebar_grade = str(additional.get("reinforcement_material", "Fe 500")).strip()
+    cover_top_mm = float(additional.get("top_clear_cover", 50.0))
+    cover_bot_mm = float(additional.get("bottom_clear_cover", 40.0))
+
+    # ── 2. material properties ────────────────────────────────────────────────
+    conc = _concrete_props(concrete_grade)
+    fck = conc["fck"]
+    fctm = conc["fctm"]
+    fy = _rebar_fy(rebar_grade)
+
+    # ── 3. governing vehicle & IRC 6 loads ────────────────────────────────────
+    vehicle_class = _governing_vehicle(cw_m)
+
+    # Impact factor — IRC 6:2017 Cl.208
+    if vehicle_class in (KEY_VEHICLE[0], KEY_VEHICLE[1]):
+        IF = IRC6_2017.cl_208_3_impact_factor(span_m)
+    else:
+        IF = IRC6_2017.cl_208_2_impact_factor(span_m)
+    impact_factor = 1.0 + IF
+
+    # ULS partial safety factors — IRC 6:2017 Table B.2
+    gamma_dl = IRC6_2017.table_B2("dead_load", "adding", "basic")
+    gamma_ll = IRC6_2017.table_B2("live_load", "leading", "basic")
+
+    # Maximum single wheel load (kN) — IRC 6:2017 Cl.204
+    P_wheel_kN = _max_wheel_load_kN(vehicle_class)
+
+    # ── 4. dead load moment (continuous slab, per m width) ───────────────────
+    w_DL_kN_m2 = _GAMMA_CONCRETE_KN_M3 * (deck_t_mm / 1000.0)
+    S = beam_spacing_m
+    M_DL_kNm = w_DL_kN_m2 * S ** 2 / 10.0   # kNm/m — moment in a continuous slab
+
+    # ── 5. live load moment (effective-width method, IRC 21 Cl.305.16.2) ─────
+    # Effective dispersion width through slab depth (45° both sides)
+    bw_m = _wheel_contact_width_m(vehicle_class) + deck_t_mm / 1000.0
+    # IRC 21 Cl.305.16.2: beff = K × S × (1 - a/S) + b0
+    #   K ≈ 2.5 (Table 7 for B/L close to 1), load at a = S/2 → max moment
+    K = 2.5
+    a = S / 2.0
+    beff_m = min(K * S * (1.0 - a / S) + bw_m, S)
+    # Simply-supported transverse moment at mid-span: M = P × a × (S-a) / (S × beff)
+    M_LL_kNm = P_wheel_kN * a * (S - a) / (S * beff_m)
+
+    # ── 6. ULS design moment ─────────────────────────────────────────────────
+    M_ULS_bot_kNm = gamma_dl * M_DL_kNm + gamma_ll * impact_factor * M_LL_kNm
+    M_ULS_top_kNm = 0.75 * M_ULS_bot_kNm   # hogging over support ≈ 75% of sagging
+
+    # ── 7. design bottom (sagging) reinforcement ──────────────────────────────
+    d_bot_mm = deck_t_mm - cover_bot_mm - 6.0    # initial estimate (6 mm = half 12 mm bar)
+    As_req_bot = max(_required_steel_mm2(M_ULS_bot_kNm, fy, d_bot_mm, fck),
+                     _min_steel_mm2(fctm, fy, d_bot_mm))
+    dia_bot, spc_bot, As_bot = _pick_rebar(As_req_bot)
+    d_bot_mm = deck_t_mm - cover_bot_mm - dia_bot / 2.0   # refined with actual bar
+    # Second pass — recheck with refined d to guard against d decreasing for larger bars
+    As_req_bot2 = max(_required_steel_mm2(M_ULS_bot_kNm, fy, d_bot_mm, fck),
+                      _min_steel_mm2(fctm, fy, d_bot_mm))
+    if As_req_bot2 > As_bot:
+        dia_bot, spc_bot, As_bot = _pick_rebar(As_req_bot2)
+        d_bot_mm = deck_t_mm - cover_bot_mm - dia_bot / 2.0
+
+    # ── 8. design top (hogging) reinforcement ────────────────────────────────
+    d_top_mm = deck_t_mm - cover_top_mm - 6.0
+    As_req_top = max(_required_steel_mm2(M_ULS_top_kNm, fy, d_top_mm, fck),
+                     _min_steel_mm2(fctm, fy, d_top_mm))
+    dia_top, spc_top, As_top = _pick_rebar(As_req_top)
+    d_top_mm = deck_t_mm - cover_top_mm - dia_top / 2.0
+    As_req_top2 = max(_required_steel_mm2(M_ULS_top_kNm, fy, d_top_mm, fck),
+                      _min_steel_mm2(fctm, fy, d_top_mm))
+    if As_req_top2 > As_top:
+        dia_top, spc_top, As_top = _pick_rebar(As_req_top2)
+        d_top_mm = deck_t_mm - cover_top_mm - dia_top / 2.0
+
+    # ── 9. moment capacity check ─────────────────────────────────────────────
+    Mu_bot = _moment_capacity_kNm(fy, As_bot, d_bot_mm, fck)
+    Mu_top = _moment_capacity_kNm(fy, As_top, d_top_mm, fck)
+    bot_ok = Mu_bot >= M_ULS_bot_kNm
+    top_ok = Mu_top >= M_ULS_top_kNm
+
+    # ── 10. deck overhang design ─────────────────────────────────────────────
+    overhang_m = 0.0
+    if sizing is not None and hasattr(sizing, "deck_overhang"):
+        overhang_m = float(sizing.deck_overhang or 0.0)
+
+    if overhang_m > 0.01:
+        # Minimum clearance from kerb face to wheel — IRC 6:2017 Table 3
+        table3 = IRC6_2017.table_3(cw_m)
+        g_min = float(table3["g_min"])
+
+        # Railing dead load — IRC 6:2017 Cl.206.5 (kg/m → kN/m)
+        railing_kN_m = IRC6_2017.cl_206_5_railing_load() * 9.81 / 1000.0
+
+        # Crash barrier horizontal moment — IRC 6:2017 Cl.206.4
+        barrier = IRC6_2017.cl_206_4_crash_barrier_load()
+        M_barrier_kNm = barrier["moment_at_base_kNm_per_m"]
+
+        # DL cantilever moments at root (kNm/m)
+        M_DL_slab_oh = w_DL_kN_m2 * overhang_m ** 2 / 2.0
+        M_DL_railing_oh = railing_kN_m * overhang_m
+        M_DL_oh = M_DL_slab_oh + M_DL_railing_oh
+
+        # LL cantilever moment: wheel at g_min clearance from free edge
+        arm_wheel = overhang_m - g_min
+        if arm_wheel > 0.0:
+            bw_oh = _wheel_contact_width_m(vehicle_class) + deck_t_mm / 1000.0
+            # IRC 21 Cl.305.16.3 cantilever effective width: beff = 1.3·a + bw
+            beff_oh = min(1.3 * arm_wheel + bw_oh, overhang_m)
+            M_LL_oh = P_wheel_kN * arm_wheel / beff_oh
+        else:
+            arm_wheel = 0.0
+            beff_oh = overhang_m
+            M_LL_oh = 0.0
+
+        # ULS hogging moment at root
+        M_ULS_oh = (gamma_dl * M_DL_oh
+                    + gamma_ll * impact_factor * M_LL_oh
+                    + gamma_ll * M_barrier_kNm)
+
+        # Design top (hogging) reinforcement for overhang
+        d_oh_mm = deck_t_mm - cover_top_mm - 6.0
+        As_req_oh = max(_required_steel_mm2(M_ULS_oh, fy, d_oh_mm, fck),
+                        _min_steel_mm2(fctm, fy, d_oh_mm))
+        dia_oh, spc_oh, As_oh = _pick_rebar(As_req_oh)
+        d_oh_mm = deck_t_mm - cover_top_mm - dia_oh / 2.0
+        # Second pass — recheck with refined d (larger bars reduce d below d_init)
+        As_req_oh2 = max(_required_steel_mm2(M_ULS_oh, fy, d_oh_mm, fck),
+                         _min_steel_mm2(fctm, fy, d_oh_mm))
+        if As_req_oh2 > As_oh:
+            dia_oh, spc_oh, As_oh = _pick_rebar(As_req_oh2)
+            d_oh_mm = deck_t_mm - cover_top_mm - dia_oh / 2.0
+
+        Mu_oh = _moment_capacity_kNm(fy, As_oh, d_oh_mm, fck)
+        oh_ok = Mu_oh >= M_ULS_oh
+
+        overhang_lines = [
+            "",
+            "Deck Overhang Design",
+            "-" * 40,
+            f"  Overhang length L_oh  : {overhang_m * 1000:.0f} mm  ({overhang_m:.3f} m)",
+            f"  Min. clearance g_min  : {g_min:.3f} m  [IRC 6:2017 Table 3]",
+            f"  Railing DL load       : {railing_kN_m:.3f} kN/m  [IRC 6:2017 Cl.206.5]",
+            f"  Crash barrier moment  : {M_barrier_kNm:.2f} kNm/m  [IRC 6:2017 Cl.206.4]",
+            f"  Wheel arm from root   : {arm_wheel:.3f} m",
+            f"  M_DL (overhang)       : {M_DL_oh:.3f} kNm/m  (slab {M_DL_slab_oh:.3f} + railing {M_DL_railing_oh:.3f})",
+            f"  M_LL (overhang)       : {M_LL_oh:.3f} kNm/m",
+            f"  M_ULS (overhang)      : {M_ULS_oh:.3f} kNm/m",
+            "",
+            "Overhang Top Reinforcement",
+            "-" * 40,
+            f"  Effective depth d     : {d_oh_mm:.1f} mm",
+            f"  As required           : {As_req_oh:.0f} mm²/m",
+            f"  Provided              : Ø{dia_oh:.0f} @ {spc_oh:.0f} mm c/c  →  {As_oh:.0f} mm²/m",
+            f"  Moment capacity Mu    : {Mu_oh:.3f} kNm/m",
+            f"  Status                : {'PASS' if oh_ok else 'FAIL'}",
+        ]
+    else:
+        g_min = railing_kN_m = M_barrier_kNm = 0.0
+        M_DL_oh = M_LL_oh = M_ULS_oh = arm_wheel = 0.0
+        dia_oh = spc_oh = As_oh = As_req_oh = d_oh_mm = Mu_oh = 0.0
+        oh_ok = True
+        overhang_lines = []
+
+    # ── 11. SLS checks (IRC 112:2020) ────────────────────────────────────────
+    # Characteristic combination (stress, Cl.12.2.1): γ_DL=1.0, γ_LL=1.0
+    # Frequent combination    (crack width, Cl.12.3.4): γ_DL=1.0, γ_LL=0.75
+    M_SLS_char_bot = M_DL_kNm + impact_factor * M_LL_kNm
+    M_SLS_char_top = 0.75 * M_SLS_char_bot
+    M_SLS_freq_bot = M_DL_kNm + 0.75 * impact_factor * M_LL_kNm
+    M_SLS_freq_top = 0.75 * M_SLS_freq_bot
+
+    sc_bot = _sls_stress(M_SLS_char_bot, As_bot, d_bot_mm, fck, fy)
+    sc_top = _sls_stress(M_SLS_char_top, As_top, d_top_mm, fck, fy)
+    cw_bot = _sls_crack_width(M_SLS_freq_bot, As_bot, dia_bot, d_bot_mm,
+                               deck_t_mm, cover_bot_mm, fck, fctm)
+    cw_top = _sls_crack_width(M_SLS_freq_top, As_top, dia_top, d_top_mm,
+                               deck_t_mm, cover_top_mm, fck, fctm)
+
+    if overhang_m > 0.01:
+        M_SLS_char_oh = M_DL_oh + impact_factor * M_LL_oh + M_barrier_kNm
+        M_SLS_freq_oh = M_DL_oh + 0.75 * (impact_factor * M_LL_oh + M_barrier_kNm)
+        sc_oh  = _sls_stress(M_SLS_char_oh, As_oh, d_oh_mm, fck, fy)
+        cw_oh  = _sls_crack_width(M_SLS_freq_oh, As_oh, dia_oh, d_oh_mm,
+                                   deck_t_mm, cover_top_mm, fck, fctm)
+        overhang_sls_lines = [
+            "",
+            "Overhang SLS Stress Check  [IRC 112:2020 Cl.12.2.1]",
+            "-" * 40,
+            f"  M_SLS,char (overhang) : {M_SLS_char_oh:.3f} kNm/m  (γ_DL=1.0, γ_LL=1.0)",
+            f"  Concrete σc           : {sc_oh['sigma_c']:.2f} MPa  ≤ {sc_oh['sc_lim']:.1f} MPa  → {'PASS' if sc_oh['sc_ok'] else 'FAIL'}",
+            f"  Steel σs              : {sc_oh['sigma_s']:.2f} MPa  ≤ {sc_oh['ss_lim']:.1f} MPa  → {'PASS' if sc_oh['ss_ok'] else 'FAIL'}",
+            "",
+            "Overhang Crack Width Check  [IRC 112:2020 Cl.12.3.4]",
+            "-" * 40,
+            f"  M_SLS,freq (overhang) : {M_SLS_freq_oh:.3f} kNm/m  (γ_DL=1.0, γ_LL=0.75)",
+            f"  Steel stress σs       : {cw_oh['sigma_s']:.2f} MPa",
+            f"  ρp,eff                : {cw_oh['rho_p_eff']:.5f}",
+            f"  Crack spacing Sr,max  : {cw_oh['Sr_max']:.1f} mm",
+            f"  Strain diff εsm-εcm   : {cw_oh['eps_diff']:.3e}",
+            f"  Crack width wk        : {cw_oh['wk']:.4f} mm  ≤ {cw_oh['wk_lim']:.1f} mm  → {'PASS' if cw_oh['ok'] else 'FAIL'}",
+        ]
+    else:
+        overhang_sls_lines = []
+
+    # ── utilization ratios (demand / capacity) ────────────────────────────────
+    ur_bot_uls = M_ULS_bot_kNm / Mu_bot if Mu_bot > 0 else 9.999
+    ur_top_uls = M_ULS_top_kNm / Mu_top if Mu_top > 0 else 9.999
+    ur_bot_sls_c = sc_bot["sigma_c"] / sc_bot["sc_lim"]
+    ur_bot_sls_s = sc_bot["sigma_s"] / sc_bot["ss_lim"]
+    ur_top_sls_c = sc_top["sigma_c"] / sc_top["sc_lim"]
+    ur_top_sls_s = sc_top["sigma_s"] / sc_top["ss_lim"]
+    ur_bot_crack = cw_bot["wk"] / cw_bot["wk_lim"]
+    ur_top_crack = cw_top["wk"] / cw_top["wk_lim"]
+
+    sls_lines = [
+        "",
+        "=" * 52,
+        "SLS Checks  (IRC 112:2020)",
+        "=" * 52,
+        "",
+        "Stress Check — Bottom (Sagging)  [Cl.12.2.1]",
+        "-" * 40,
+        f"  M_SLS,char (sagging)  : {M_SLS_char_bot:.3f} kNm/m  (γ_DL=1.0, γ_LL=1.0)",
+        f"  Neutral axis depth x  : {sc_bot['x']:.1f} mm",
+        f"  Concrete σc           : {sc_bot['sigma_c']:.2f} MPa  ≤ {sc_bot['sc_lim']:.1f} MPa  → {'PASS' if sc_bot['sc_ok'] else 'FAIL'}",
+        f"  Steel σs              : {sc_bot['sigma_s']:.2f} MPa  ≤ {sc_bot['ss_lim']:.1f} MPa  → {'PASS' if sc_bot['ss_ok'] else 'FAIL'}",
+        "",
+        "Stress Check — Top (Hogging)  [Cl.12.2.1]",
+        "-" * 40,
+        f"  M_SLS,char (hogging)  : {M_SLS_char_top:.3f} kNm/m  (γ_DL=1.0, γ_LL=1.0)",
+        f"  Concrete σc           : {sc_top['sigma_c']:.2f} MPa  ≤ {sc_top['sc_lim']:.1f} MPa  → {'PASS' if sc_top['sc_ok'] else 'FAIL'}",
+        f"  Steel σs              : {sc_top['sigma_s']:.2f} MPa  ≤ {sc_top['ss_lim']:.1f} MPa  → {'PASS' if sc_top['ss_ok'] else 'FAIL'}",
+        "",
+        "Crack Width Check — Bottom (Sagging)  [Cl.12.3.4]",
+        "-" * 40,
+        f"  M_SLS,freq (sagging)  : {M_SLS_freq_bot:.3f} kNm/m  (γ_DL=1.0, γ_LL=0.75)",
+        f"  Steel stress σs       : {cw_bot['sigma_s']:.2f} MPa",
+        f"  ρp,eff                : {cw_bot['rho_p_eff']:.5f}",
+        f"  Crack spacing Sr,max  : {cw_bot['Sr_max']:.1f} mm",
+        f"  Strain diff εsm-εcm   : {cw_bot['eps_diff']:.3e}",
+        f"  Crack width wk        : {cw_bot['wk']:.4f} mm  ≤ {cw_bot['wk_lim']:.1f} mm  → {'PASS' if cw_bot['ok'] else 'FAIL'}",
+        "",
+        "Crack Width Check — Top (Hogging)  [Cl.12.3.4]",
+        "-" * 40,
+        f"  M_SLS,freq (hogging)  : {M_SLS_freq_top:.3f} kNm/m  (γ_DL=1.0, γ_LL=0.75)",
+        f"  Steel stress σs       : {cw_top['sigma_s']:.2f} MPa",
+        f"  ρp,eff                : {cw_top['rho_p_eff']:.5f}",
+        f"  Crack spacing Sr,max  : {cw_top['Sr_max']:.1f} mm",
+        f"  Strain diff εsm-εcm   : {cw_top['eps_diff']:.3e}",
+        f"  Crack width wk        : {cw_top['wk']:.4f} mm  ≤ {cw_top['wk_lim']:.1f} mm  → {'PASS' if cw_top['ok'] else 'FAIL'}",
+        *overhang_sls_lines,
+    ]
+
+    # ── 12. design check report ───────────────────────────────────────────────
+    lines = [
+        "IRC 6:2017 Deck Slab Design Summary",
+        "=" * 52,
+        "",
+        f"Governing vehicle      : {vehicle_class}",
+        f"Impact factor (IF)     : {impact_factor:.3f}  [IRC 6:2017 Cl.208]",
+        f"  (1 + {IF:.3f} for span {span_m:.1f} m)",
+        f"γ_DL  [Table B.2]      : {gamma_dl}",
+        f"γ_LL  [Table B.2]      : {gamma_ll}",
+        "",
+        f"Effective span (S)     : {S:.3f} m  (girder c/c)",
+        f"Deck thickness         : {deck_t_mm:.0f} mm",
+        f"Concrete               : {concrete_grade}  (fck = {fck:.0f} MPa, fctm = {fctm:.1f} MPa)",
+        f"Reinforcement          : {rebar_grade}  (fy = {fy:.0f} MPa)",
+        "",
+        "Interior Span Loads",
+        "-" * 40,
+        f"  Dead load (w_DL)     : {w_DL_kN_m2:.2f} kN/m²",
+        f"  Max wheel load (P)   : {P_wheel_kN:.1f} kN  [IRC 6:2017 Cl.204]",
+        f"  Effective width beff : {beff_m:.3f} m  [IRC 21 Cl.305.16.2]",
+        "",
+        "Interior Span Design Moments",
+        "-" * 40,
+        f"  M_DL                 : {M_DL_kNm:.3f} kNm/m",
+        f"  M_LL (unfactored)    : {M_LL_kNm:.3f} kNm/m",
+        f"  M_ULS (sagging)      : {M_ULS_bot_kNm:.3f} kNm/m",
+        f"  M_ULS (hogging, 75%) : {M_ULS_top_kNm:.3f} kNm/m",
+        "",
+        "Bottom (Sagging) Reinforcement",
+        "-" * 40,
+        f"  Effective depth d    : {d_bot_mm:.1f} mm",
+        f"  As required          : {As_req_bot:.0f} mm²/m",
+        f"  Provided             : Ø{dia_bot:.0f} @ {spc_bot:.0f} mm c/c  →  {As_bot:.0f} mm²/m",
+        f"  Moment capacity Mu   : {Mu_bot:.3f} kNm/m",
+        f"  Status               : {'PASS' if bot_ok else 'FAIL'}",
+        "",
+        "Top (Hogging) Reinforcement",
+        "-" * 40,
+        f"  Effective depth d    : {d_top_mm:.1f} mm",
+        f"  As required          : {As_req_top:.0f} mm²/m",
+        f"  Provided             : Ø{dia_top:.0f} @ {spc_top:.0f} mm c/c  →  {As_top:.0f} mm²/m",
+        f"  Moment capacity Mu   : {Mu_top:.3f} kNm/m",
+        f"  Status               : {'PASS' if top_ok else 'FAIL'}",
+        *overhang_lines,
+        *sls_lines,
+    ]
+    design_check_text = "\n".join(lines)
+
+    # ── 13. return UI-compatible dict ─────────────────────────────────────────
+    result = {
+        "deck_grade"               : concrete_grade,
+        "deck_thickness"           : f"{deck_t_mm:.0f}",
+        "deck_overhang"            : f"{overhang_m * 1000:.0f}",
+        # top reinforcement (interior hogging)
+        "rebar_top_yield"          : f"{fy:.0f}",
+        "rebar_top_dia"            : f"{dia_top:.0f}",
+        "rebar_top_spacing"        : f"{spc_top:.0f}",
+        "rebar_top_cover"          : f"{cover_top_mm:.0f}",
+        "rebar_top_area"           : f"{As_top:.0f}",
+        # bottom reinforcement (interior sagging)
+        "rebar_bottom_yield"       : f"{fy:.0f}",
+        "rebar_bottom_dia"         : f"{dia_bot:.0f}",
+        "rebar_bottom_spacing"     : f"{spc_bot:.0f}",
+        "rebar_bottom_cover"       : f"{cover_bot_mm:.0f}",
+        "rebar_bottom_area"        : f"{As_bot:.0f}",
+        # design check
+        "deck_design_check"        : design_check_text,
+        # utilization ratios
+        "ur_bot_uls"   : round(ur_bot_uls, 3),
+        "ur_top_uls"   : round(ur_top_uls, 3),
+        "ur_bot_sls_c" : round(ur_bot_sls_c, 3),
+        "ur_bot_sls_s" : round(ur_bot_sls_s, 3),
+        "ur_top_sls_c" : round(ur_top_sls_c, 3),
+        "ur_top_sls_s" : round(ur_top_sls_s, 3),
+        "ur_bot_crack" : round(ur_bot_crack, 3),
+        "ur_top_crack" : round(ur_top_crack, 3),
+    }
+    if overhang_m > 0.01:
+        result.update({
+            "rebar_overhang_yield"   : f"{fy:.0f}",
+            "rebar_overhang_dia"     : f"{dia_oh:.0f}",
+            "rebar_overhang_spacing" : f"{spc_oh:.0f}",
+            "rebar_overhang_cover"   : f"{cover_top_mm:.0f}",
+            "rebar_overhang_area"    : f"{As_oh:.0f}",
+            "ur_oh_uls"   : round(M_ULS_oh / Mu_oh if Mu_oh > 0 else 9.999, 3),
+            "ur_oh_sls_c" : round(sc_oh["sigma_c"] / sc_oh["sc_lim"], 3),
+            "ur_oh_sls_s" : round(sc_oh["sigma_s"] / sc_oh["ss_lim"], 3),
+            "ur_oh_crack" : round(cw_oh["wk"] / cw_oh["wk_lim"], 3),
+        })
+    return result

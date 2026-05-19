@@ -5,7 +5,10 @@ Module for IRC 22:2014 bridge design clauses.
 
 """
 
-from osdag_core.utils.common.is800_2007 import IS800_2007 
+try:
+    from osdag_core.utils.common.is800_2007 import IS800_2007
+except ModuleNotFoundError:
+    from osdagbridge.core.utils.codes.is800_2007 import IS800_2007
 from osdagbridge.core.utils.codes.keyfile import *
 import math
 
@@ -373,87 +376,181 @@ class IRC22_2014:
             beff,
             ds,
             As,
-            Af,
-            bf,
-            tf,
+            bf_top,
+            tf_top,
             tw,
-            dc,
+            dw,
+            bf_bot,
+            tf_bot,
+            D_steel,
+            ys_from_bot,
+            h_haunch=0.0,
+            gamma_m0=GAMMA_M0_STEEL,
+            gamma_c=1.50,
             combination_type="basic",
             is_compact=True,
-            beff_compact_limit=None,
-            fabrication=KEY_SECTION_FABRICATION[0]  # default = rolled
+            fabrication=KEY_SECTION_FABRICATION[0]
         ):
         """
-        IRC:22-2014
-        Clause 603.3.1 + Annexure I (I.1)
-        Positive Moment Resistance of Composite Beam
+        IRC:22-2014 Clause 603.3.1 + Annexure I (I.1 and I.2)
+        Positive Moment Resistance of Composite Beam (Sagging, Full Shear Interaction)
         """
 
-        # Step 1: Effective width restriction
+        # 0. Combination-specific concrete safety factor
+        gamma_c_used = 1.20 if combination_type == "accidental" else gamma_c
+
+        # 1. Stress block shape factors — Annex I.1
+        if fck <= 60.0:
+            eta = 1.0
+            lam = 0.8
+        elif fck <= 110.0:
+            eta = 1.0 - (fck - 60.0) / 250.0
+            lam = 0.8 - (fck - 60.0) / 500.0
+        else:
+            raise ValueError(
+                f"fck = {fck} MPa exceeds 110 MPa, outside the Annex I.1 stress "
+                "block formula range (IRC 22:2014)."
+            )
+
+        alpha_cc = 0.67
+        f_conc = alpha_cc * eta * fck / gamma_c_used
+
+        # 2. Annex I.2 — restrict beff for non-compact sections
         beff_used = beff
-
         if not is_compact:
-
             eps = math.sqrt(250.0 / fy)
-            fabrication = fabrication.lower()
+            fab = fabrication.lower()
 
-            if fabrication == KEY_SECTION_FABRICATION[0]:      # rolled
-                flange_compact_ratio = 10.5 * eps
-                section_type = "Rolled"
-            elif fabrication == KEY_SECTION_FABRICATION[1]:    # welded
-                flange_compact_ratio = 9.4 * eps
+            if fab == KEY_SECTION_FABRICATION[1]:
+                outstand_limit = 9.4 * eps
                 section_type = "Welded"
             else:
-                raise ValueError(
-                    f"Invalid fabrication type '{fabrication}'. "
-                    f"Allowed: {KEY_SECTION_FABRICATION}"
-                )
+                outstand_limit = 10.5 * eps
+                section_type = "Rolled"
 
-            # Flange compact check (IS800 reference)
+            beff_flange = outstand_limit * tf_top * 2
+
+            web_compact_ratio = 105.0 * eps
+            beff_web = web_compact_ratio * tw
+
             IS800_2007.Table2_i(
-                width=bf,
-                thickness=tf,
+                width=(bf_top / 2.0 - tw / 2.0),
+                thickness=tf_top,
                 f_y=fy,
                 section_type=section_type
             )
-
-            beff_flange_limit = flange_compact_ratio * tf
-
-            # Web compact check (IS800 reference)
             IS800_2007.Table2_iii(
-                depth=ds,
+                depth=dw,
                 thickness=tw,
                 f_y=fy,
                 classification_type="Neutral axis at mid-depth"
             )
 
-            web_compact_ratio = 105.0 * eps
-            beff_web_limit = web_compact_ratio * tw
-
-            beff_compact_limit = min(beff_flange_limit, beff_web_limit)
+            beff_compact_limit = min(beff_flange, beff_web)
             beff_used = min(beff, beff_compact_limit)
 
-        # Step 2: Positive Moment Capacity
-        # Full shear interaction assumption
+        # 3. Steel geometry helpers
+        Af_top = bf_top * tf_top
+        Aw     = tw     * dw
+        Af_bot = bf_bot * tf_bot
 
-        # Concrete compression force (N)
-        C = 0.36 * fck * beff_used * dc
+        # 4. Design forces
+        f_s   = fy / gamma_m0
+        T     = As * f_s
+        C_max = f_conc * lam * beff_used * ds
 
-        # Steel tension force (N)
-        T = Af * fy
+        # 5a. CASE A: PNA in the concrete slab
+        if T <= C_max:
+            xu = T / (f_conc * lam * beff_used)
+            a  = lam * xu
 
-        # Governing force
-        F = min(C, T)
+            y_steel   = ds + h_haunch + (D_steel - ys_from_bot)
+            lever_arm = y_steel - a / 2.0
 
-        # Positive moment (Nmm)
-        Mp_Nmm = F * dc
+            Mp_Nmm = T * lever_arm
+            Mp_kNm = Mp_Nmm / 1e6
+
+            return {
+                "eta"                 : round(eta, 4),
+                "lambda_factor"       : round(lam, 4),
+                "alpha_cc"            : alpha_cc,
+                "gamma_c_used"        : gamma_c_used,
+                "f_conc_design_MPa"   : round(f_conc, 3),
+                "beff_used_mm"        : round(beff_used, 2),
+                "T_design_kN"         : round(T / 1e3, 3),
+                "C_slab_max_kN"       : round(C_max / 1e3, 3),
+                "xu_mm"               : round(xu, 3),
+                "a_mm"                : round(a, 3),
+                "pna_location"        : "slab",
+                "lever_arm_mm"        : round(lever_arm, 3),
+                "Mp_kNm"              : round(Mp_kNm, 3),
+                "Md_kNm"              : round(Mp_kNm, 3),
+                "clause"              : "IRC 22:2014 - 603.3.1 + Annex I (I.1, I.2)",
+            }
+
+        # 5b. CASE B: PNA in the steel section
+        C_conc = C_max
+        a      = lam * ds
+
+        F_steel_comp = (T - C_conc) / 2.0
+
+        if F_steel_comp <= Af_top * f_s:
+            pna_in_el    = F_steel_comp / (bf_top * f_s)
+            y_pna_steel  = pna_in_el
+            pna_location = "top_flange"
+        elif F_steel_comp <= (Af_top + Aw) * f_s:
+            depth_in_web = (F_steel_comp - Af_top * f_s) / (tw * f_s)
+            y_pna_steel  = tf_top + depth_in_web
+            pna_location = "web"
+        else:
+            depth_in_bot = (F_steel_comp - (Af_top + Aw) * f_s) / (bf_bot * f_s)
+            y_pna_steel  = tf_top + dw + depth_in_bot
+            pna_location = "bottom_flange"
+
+        y_pna_abs = ds + h_haunch + y_pna_steel
+        xu        = y_pna_abs
+
+        y_conc_cg = a / 2.0
+        Mp_Nmm    = C_conc * (y_pna_abs - y_conc_cg)
+
+        steel_elems = [
+            (ds + h_haunch,                tf_top,  bf_top),
+            (ds + h_haunch + tf_top,       dw,      tw),
+            (ds + h_haunch + tf_top + dw,  tf_bot,  bf_bot),
+        ]
+
+        for y_top, h_el, w_el in steel_elems:
+            y_bot = y_top + h_el
+            if y_bot <= y_pna_abs:
+                y_cg    = y_top + h_el / 2.0
+                Mp_Nmm += f_s * w_el * h_el * (y_pna_abs - y_cg)
+            elif y_top >= y_pna_abs:
+                y_cg    = y_top + h_el / 2.0
+                Mp_Nmm += f_s * w_el * h_el * (y_cg - y_pna_abs)
+            else:
+                h_comp  = y_pna_abs - y_top
+                h_tens  = y_bot     - y_pna_abs
+                Mp_Nmm += f_s * w_el * h_comp * (h_comp / 2.0)
+                Mp_Nmm += f_s * w_el * h_tens * (h_tens / 2.0)
+
         Mp_kNm = Mp_Nmm / 1e6
 
         return {
-            "beff_used_mm": round(beff_used, 3),
-            "Mp_kNm": round(Mp_kNm, 3),
-            "governing_force": "concrete" if C < T else "steel",
-            "clause": "IRC 22:2014 - 603.3.1 Positive Moment Capacity"
+            "eta"                      : round(eta, 4),
+            "lambda_factor"            : round(lam, 4),
+            "alpha_cc"                 : alpha_cc,
+            "gamma_c_used"             : gamma_c_used,
+            "f_conc_design_MPa"        : round(f_conc, 3),
+            "beff_used_mm"             : round(beff_used, 2),
+            "T_design_kN"              : round(T / 1e3, 3),
+            "C_slab_max_kN"            : round(C_max / 1e3, 3),
+            "xu_mm"                    : round(xu, 3),
+            "a_mm"                     : round(a, 3),
+            "pna_location"             : pna_location,
+            "y_pna_from_steel_top_mm"  : round(y_pna_steel, 3),
+            "Mp_kNm"                   : round(Mp_kNm, 3),
+            "Md_kNm"                   : round(Mp_kNm, 3),
+            "clause"                   : "IRC 22:2014 - 603.3.1 + Annex I (I.1, I.2)",
         }
 
 
@@ -464,7 +561,7 @@ class IRC22_2014:
         Ze,                             # mm3
         fy,                             # MPa
         gamma_mo=GAMMA_M0_STEEL,
-        support="KEY_DISP_SUPPORT1",
+        support="Simply Supported",
 
         Iy=None,                        # mm4
         It=None,                        # mm4
@@ -512,10 +609,11 @@ class IRC22_2014:
         # ------------------ Step 2: βb ------------------
         if section_class in ["plastic", "compact"]:
             beta_b = 1.0
-        elif section_class in ["semi-compact"]:
+        elif section_class in ["semi-compact", "slender"]:
+            # Slender webs are common in plate girders; IS 800 Cl.8.2.1.2 limits Md to Ze*fy/γm0
             beta_b = Ze / Zp
         else:
-            raise ValueError("Buckling check not applicable for slender sections")
+            raise ValueError(f"Unrecognised section_class '{section_class}'")
 
         # ------------------ Step 3: αLT ------------------
         alpha_LT = 0.21 if section_type == "rolled" else 0.49
@@ -766,6 +864,7 @@ class IRC22_2014:
         if V_kN <= 0.6 * Vd_kN:
             return {
                 "Md_kNm": round(Md_kNm, 3),
+                "Mfd_kNm": round(Mfd_kNm, 3),
                 "Mdv_kNm": round(Md_kNm, 3),
                 "beta": 0.0,
                 "is_reduction_required": False,
@@ -1313,7 +1412,7 @@ class IRC22_2014:
             tau_range <= tau_fd
 
         Absolute max stress limits:
-            sigma_max <= fy
+            sigma_max <= 1.5 * fy
             tau_max   <= tau_y
 
         Note:
@@ -1321,8 +1420,6 @@ class IRC22_2014:
             As per assumption:
                 tau_y = 0.43 * fy   (Assumed based on IRC:24 Table G.2)
         """
-
-
         if fy is None:
             raise ValueError("fy (yield stress) must be provided")
 
@@ -1333,7 +1430,7 @@ class IRC22_2014:
 
         
         # Normal elastic limit
-        sigma_limit = fy
+        sigma_limit = 1.5 * fy
 
         # Shear elastic limit 
         tau_y = 0.43 * fy  # Assumption: IRC 24 Table G.2
@@ -1413,33 +1510,25 @@ class IRC22_2014:
             (b) explicitly give fck_cu_MPa and Ecm_MPa
         """
 
-        # Fetch concrete properties from IRC Table III.1 
+        # Fetch concrete properties from IRC Table III.1 only if not supplied directly.
         if (fck_cu_MPa is None or Ecm_MPa is None):
             if grade is None:
                 raise ValueError("Provide either grade='Mxx' OR provide fck_cu_MPa and Ecm_MPa")
 
-            # Example expected function: cl_602_annexIII_concrete_properties()
+            row = IRC22_2014.cl_602_annexIII_concrete_properties(grade=grade)
 
-            table = IRC22_2014.cl_602_annexIII_concrete_properties()
+            if "fck_cu" in row:
+                fck_cu_MPa = row["fck_cu"]
+            elif "fck" in row:
+                fck_cu_MPa = row["fck"]   # cube strength from Annex III
+            else:
+                raise KeyError("Concrete table must provide fck or fck_cu")
 
-            if grade not in table:
-                raise ValueError(f"{grade} not found in IRC22 Table III.1 concrete properties")
-
-        row = table[grade]
-
-        # Handles different possible keys safely
-        if "fck_cu" in row:
-            fck_cu_MPa = row["fck_cu"]
-        elif "fck" in row:
-            fck_cu_MPa = row["fck"]   # cube strength from Annex III
-        else:
-            raise KeyError("Concrete table must provide fck or fck_cu")
-
-        # Modulus of elasticity (usually stored in GPa)
-        if "Ec" in row:
-            Ecm_MPa = row["Ec"] * 1000 if row["Ec"] < 1000 else row["Ec"]
-        else:
-            raise KeyError("Concrete table must provide Ec")
+            # Modulus of elasticity (usually stored in GPa)
+            if "Ec" in row:
+                Ecm_MPa = row["Ec"] * 1000 if row["Ec"] < 1000 else row["Ec"]
+            else:
+                raise KeyError("Concrete table must provide Ec")
 
         if d_mm <= 0 or hs_mm <= 0:
             raise ValueError("Stud diameter and height must be positive")
@@ -1610,22 +1699,17 @@ class IRC22_2014:
     def cl_606_4_1_longitudinal_shear_and_spacing(
         V_kN,              # Vertical shear at section (kN)
         beff_mm,           # Effective slab width (mm)
-        xu_mm,             # NA depth from top concrete (mm) -> from IRC22 603.3.1
+        xu_mm,             # elastic composite NA depth from top of slab (mm)
         t_slab_mm,         # slab thickness (mm)
 
-        Qu_kN,             # stud design capacity (kN) -> from IRC22 606.3.1 
+        Qu_kN,             # stud design capacity (kN) -> from IRC22 606.3.1
 
-        # Material 
-        Es_MPa=E_STEEL_MPA,      # MPa (as per IRC 22 clause 604.3)
-        Ecm_MPa=None,      # MPa secant modulus of concrete (can be taken from IRC22 Table III.1)
+        # Material
+        Es_MPa=E_STEEL_MPA,  # MPa (as per IRC 22 clause 604.3)
+        Ecm_MPa=None,        # MPa secant modulus of concrete (IRC22 Table III.1)
 
-        # Steel section inputs
-        As_mm2=0.0,        # steel area (mm2) (from software/user)
-        Is_mm4=0.0,        # steel second moment of area (mm4) (from software/user)
-        ys_mm=None,        # CG distance from top of section to steel CG (mm)
-        D_mm=None,         # total depth of girder (mm) - needed only if ys_mm not given
-
-        Ic_mm4=None,       # composite inertia if already known (optional)
+        Ic_mm4=None,         # composite second moment of area (mm4) — required;
+                             # compute via composite_section_properties() in initial_sizing.py
         studs_per_section=2
     ):
         """
@@ -1634,13 +1718,9 @@ class IRC22_2014:
 
         Longitudinal Shear and Spacing of Shear Connectors (ULS)
 
-        Notes / Corrections:
-        - Ecm is used instead of Ec. (Ecm may be taken from IRC 22 Table III.1)
-        - xu is obtained from IRC 22 Clause 603.3.1 (neutral axis depth)
-        - Composite inertia must include steel inertia Is_mm4 (previously missing)
-        - Qu must come from Clause 606.3.1, not assumed 100 kN
-        - ys_mm is CG distance steel to top of section;
-        default assumption: ys = D/2 + t_slab (if ys not given)
+        Ic_mm4 must be supplied by the caller — use composite_section_properties()
+        from initial_sizing.py (IRC 22:2015 Cl.604.3).
+        Qu must come from Clause 606.3.1.
         """
 
         if Ecm_MPa is None:
@@ -1653,33 +1733,24 @@ class IRC22_2014:
         V_N = V_kN * 1e3
         Qu_N = Qu_kN * 1e3
 
-        # Default ys if not provided
-        if ys_mm is None:
-            if D_mm is None:
-                raise ValueError("Provide either ys_mm OR D_mm (for default ys = D/2 + t_slab)")
-            ys_mm = (D_mm / 2.0) + t_slab_mm
-
         # Modular ratio (n)
         n = Es_MPa / Ecm_MPa
 
         # Effective thickness of concrete in compression block
         t_eff = min(xu_mm, t_slab_mm)
 
-        # Transformed compressive concrete area
-        Aec = n * beff_mm * t_eff  # mm2
+        # Transformed compressive concrete area (steel-side: divide by n)
+        Aec = beff_mm * t_eff / n  # mm2
 
         # Distance from NA to centroid of concrete compression block
         Y = xu_mm - (t_eff / 2.0)
 
-        # Composite inertia calculation (if not supplied)
         if Ic_mm4 is None:
-            # Steel inertia about composite NA
-            I_steel = Is_mm4 + As_mm2 * (ys_mm - xu_mm) ** 2
-
-            # Concrete inertia about composite NA (transformed)
-            I_conc = (n * beff_mm * (t_eff ** 3) / 12.0) + Aec * (Y ** 2)
-
-            Ic_mm4 = I_steel + I_conc
+            raise ValueError(
+                "Ic_mm4 must be provided. Compute it using "
+                "composite_section_properties() from initial_sizing.py "
+                "(IRC 22:2015 Cl.604.3)."
+            )
 
         # Longitudinal shear per unit length (N/mm)
         VL_N_per_mm = V_N * (Aec * Y) / Ic_mm4
@@ -1709,7 +1780,7 @@ class IRC22_2014:
         Qu_kN,              # stud capacity (kN) -> from IRC22 606.3.1
         shear_span_mm,      # L = length from zero moment to max moment section (mm)
         studs_per_section=2,
-        gamma_m=GAMMA_M0_STEEL
+        gamma_m=1
     ):
         """
         IRC 22:2015 Clause 606.4.1.1 Full Shear Connection
@@ -1771,7 +1842,8 @@ class IRC22_2014:
         xu_mm,             # NA depth from top concrete (mm) -> from IRC22 603.3.1
         t_slab_mm,         # slab thickness (mm)
         I_composite_mm4,   # composite moment of inertia (mm4) (same as 606.4.1; may move to another file)
-        Qu_kN,             # stud capacity (kN) -> from Clause 606.3.1
+        Qu_kN,             # stud fatigue capacity Qr (kN) -> from Clause 606.3.2
+        n,                 # short-term modular ratio Es/Ecm
         studs_per_section=2
     ):
         """
@@ -1796,7 +1868,7 @@ class IRC22_2014:
         t_eff = min(xu_mm, t_slab_mm)
 
         # transformed compression area of concrete
-        Aec_mm2 = beff_mm * t_eff
+        Aec_mm2 = beff_mm * t_eff / n
 
         # CG distance of compression block from NA (same as 606.4.1)
         Y_mm = xu_mm - t_eff / 2
@@ -2002,15 +2074,15 @@ class IRC22_2014:
         """
 
 
-        # Convert units where required
-        VL = VL_kN  #  kN/m
-        L = L_mm / 1000.0  # convert mm to metres
+        # IRC 22:2015 Cl.606.10 formula uses L in mm → result is N/mm ≡ kN/m
+        VL = VL_kN  # kN/m (= N/mm)
+        L = L_mm    # mm (do NOT convert to metres; coefficient 0.632 is calibrated for mm)
         Ast = Ast_cm2_per_m  # cm2/m as required by clause
 
-        # Capacity 1 
+        # Capacity 1
         Vcap1 = 0.632 * L * math.sqrt(fck)
 
-        # Capacity 2 
+        # Capacity 2
         Vcap2 = 0.232 * L * math.sqrt(fck) + 0.1 * Ast * fyk * n_layers * 1e-3
         # Note: 0.1 * Ast * fyk gives kN since Ast in cm2 and fyk MPa
 

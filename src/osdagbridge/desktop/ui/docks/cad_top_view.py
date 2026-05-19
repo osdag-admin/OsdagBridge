@@ -6,14 +6,33 @@ Author: Arushi
 
 import math
 from PySide6.QtWidgets import QWidget, QPushButton, QScrollArea
-from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF
+from PySide6.QtCore import Qt, QRectF, QPointF, QTimer, QSize
+from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QIcon
+from .cad_cross_section import CrossSectionCADWidget
+
+# ---- CAD Grey Palette ----
+CAD_DARK_GREY   = QColor(90, 90, 90)
+CAD_MEDIUM_GREY = QColor(130, 130, 130)
+CAD_LIGHT_GREY  = QColor(180, 180, 180)
+CAD_HOVER_GREY  = QColor(110, 110, 110)
+GIRDER_HIGHLIGHT = CAD_HOVER_GREY
+CROSS_BRACING_HIGHLIGHT = CAD_HOVER_GREY
+END_DIAPHRAGM_HIGHLIGHT = CAD_HOVER_GREY
+BEARING_HIGHLIGHT = CAD_HOVER_GREY
+# ---- Dimension text spacing (CAD standard) ----
+DIM_TEXT_GAP = 15          # distance from dimension line to text
+DIM_STACK_GAP = 28         # vertical gap between stacked dimensions
+LEADER_TEXT_OFFSET = 25    # leader label distance
+
 
 class TopViewCADWidget(QWidget):
     """Widget for drawing bridge top view"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.show_dimensions = True
+        self.show_span_values = False
+        self.show_carriageway_values = False
         self.setMouseTracking(True)  # enable mouse tracking for hover
         
         # top view hover tracking 
@@ -30,6 +49,7 @@ class TopViewCADWidget(QWidget):
         self.scroll_area = None
         
         # bridge parameters with default values (all in mm)
+        # These are the CAD state variables
         self.params = {
             'span_length': 35000,
             'num_girders': 4,
@@ -44,7 +64,7 @@ class TopViewCADWidget(QWidget):
             'railing_height': 1000,
             'footpath_config': 'both',
             'deck_overhang': 1000,
-            'railing_width': 100,
+            'railing_width': 375,
             'median_present': False,
             'median_width': 1200,
         }
@@ -97,10 +117,12 @@ class TopViewCADWidget(QWidget):
         self.zoom_in_btn.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 200);
+                color: #333333;
                 border: 1px solid #999;
                 border-radius: 3px;
                 font-size: 14px;
                 font-weight: bold;
+                padding: 0;
             }
             QPushButton:hover {
                 background-color: rgba(144, 175, 19, 200);
@@ -114,10 +136,12 @@ class TopViewCADWidget(QWidget):
         self.zoom_out_btn.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 200);
+                color: #333333;
                 border: 1px solid #999;
                 border-radius: 3px;
                 font-size: 14px;
                 font-weight: bold;
+                padding: 0;
             }
             QPushButton:hover {
                 background-color: rgba(144, 175, 19, 200);
@@ -126,24 +150,37 @@ class TopViewCADWidget(QWidget):
         """)
         self.zoom_out_btn.clicked.connect(self.zoom_out)
         
-        self.zoom_reset_btn = QPushButton("Reset", self)
-        self.zoom_reset_btn.setFixedSize(45, 25)
+        self.zoom_reset_btn = QPushButton(self)
+        self.zoom_reset_btn.setFixedSize(25, 25)
+        self.zoom_reset_btn.setIcon(QIcon(":/vectors/fit_to_screen.svg"))
+        self.zoom_reset_btn.setIconSize(QSize(25, 25))
+        self.zoom_reset_btn.setToolTip("Fit to screen")
         self.zoom_reset_btn.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 200);
-                border: 1px solid #999;
-                border-radius: 3px;
-                font-size: 9px;
+                color: #333333;
+                font-size: 14px;
+                font-weight: bold;
+                border: None;
+                padding: 0;
             }
             QPushButton:hover {
-                background-color: rgba(144, 175, 19, 200);
+                background-color: rgba(55, 55, 55, 50);
                 color: white;
             }
         """)
-        self.zoom_reset_btn.clicked.connect(self.zoom_reset)
+        self.zoom_reset_btn.clicked.connect(self.fit_to_screen)
         
         # Set minimum size for visibility (reduced for better shrinking)
         self.setMinimumSize(400, 300)
+
+    def showEvent(self, event):
+        """Standardize size and center after widget is shown"""
+        super().showEvent(event)
+        # DEFAULT: Fit to Screen on startup
+        QTimer.singleShot(200, self.fit_to_screen)
+        # Position zoom buttons
+        self._position_zoom_buttons()
     
     def zoom_in(self):
         """Zoom in while keeping view centered"""
@@ -171,19 +208,78 @@ class TopViewCADWidget(QWidget):
         # Restore center position after zoom
         self._set_scroll_center(old_center, 1/1.1)
 
-    def zoom_reset(self):
-        """Reset zoom to 1.0 while keeping view centered"""
-        # Store old center position before zoom
-        old_center = self._get_scroll_center()
-        zoom_ratio = 1.0 / self.zoom_level
+    def compute_fit_zoom(self, mode="full"):
+        """
+        Compute zoom level. 
+        mode="full" -> content fits both width and height (min(scale_x, scale_y))
+        mode="height" -> content fits only height (unconstrained width)
+        """
+        span_length = max(self.params.get('span_length', 35000), 1.0)
+        n = self.params.get('num_girders', 4)
+        if n > 1:
+            total_model_width = (n - 1) * self.params.get('girder_spacing', 2750) + 2 * self.params.get('deck_overhang', 1000)
+        else:
+            total_model_width = 2 * self.params.get('deck_overhang', 1000)
+        total_model_width = max(total_model_width, 1.0)
+
+        # Base dimensions from draw_top_view
+        base_w, base_h = 900, 750
+        margin = 60
+        avail_base_w = base_w - 2 * margin
+        avail_base_h = base_h - 2 * margin - 60
         
-        # Apply zoom
-        self.zoom_level = 1.0
+        base_scale_x = avail_base_w / span_length
+        base_scale_y = avail_base_h / total_model_width
+        base_scale = min(base_scale_x, base_scale_y)
+
+        if base_scale <= 0:
+            return 1.0
+
+        # Viewport dimensions
+        if self.scroll_area and self.scroll_area.viewport():
+            vp = self.scroll_area.viewport()
+            vp_w, vp_h = max(vp.width(), 200), max(vp.height(), 150)
+        else:
+            vp_w, vp_h = max(self.width(), 400), max(self.height(), 300)
+
+        # Apply padding (~8%)
+        PADDING = 0.15
+        avail_vp_w = vp_w * (1.0 - 2 * PADDING)
+        avail_vp_h = vp_h * (1.0 - 2 * PADDING)
+
+        target_scale_x = avail_vp_w / span_length
+        target_scale_y = avail_vp_h / total_model_width
+        
+        if mode == "height":
+            target_scale = target_scale_y
+        else:
+            target_scale = min(target_scale_x, target_scale_y)
+        
+        fit_zoom = target_scale / base_scale
+        return max(0.1, min(fit_zoom, 10.0))
+
+    def fit_to_screen(self):
+        """Scale the diagram so it fits perfectly inside the visible viewport and center it."""
+        self.zoom_level = self.compute_fit_zoom(mode="full")
         self._update_widget_size()
         self.update()
-        
-        # Restore center position after zoom
-        self._set_scroll_center(old_center, zoom_ratio)
+        self._center_scroll_bars()
+
+    def zoom_reset(self):
+        """Standard behavior: Fit to height only."""
+        self.zoom_level = self.compute_fit_zoom(mode="height")
+        self._update_widget_size()
+        self.update()
+        # Center the scrollbars after size update
+        QTimer.singleShot(50, self._center_scroll_bars)
+
+    def _center_scroll_bars(self):
+        """Center the scrollbars of the parent scroll area."""
+        if self.scroll_area:
+            h_bar = self.scroll_area.horizontalScrollBar()
+            v_bar = self.scroll_area.verticalScrollBar()
+            h_bar.setValue((h_bar.minimum() + h_bar.maximum()) // 2)
+            v_bar.setValue((v_bar.minimum() + v_bar.maximum()) // 2)
 
     def _get_scroll_center(self):
         """Get the current center point of the visible viewport in widget coordinates"""
@@ -252,10 +348,38 @@ class TopViewCADWidget(QWidget):
         """Update widget size based on zoom level for proper scrolling"""
         base_width = 800
         base_height = 600
-        # Add extra padding (20%) to ensure scrollbar reaches beyond content
-        padding_factor = 1.2
-        new_width = int(base_width * self.zoom_level * padding_factor)
-        new_height = int(base_height * self.zoom_level)
+        
+        # Calculate content width at current zoom level to allow horizontal scrolling
+        span_length = max(self.params.get('span_length', 35000), 1.0)
+        n = self.params.get('num_girders', 4)
+        if n > 1:
+            total_model_width = (n - 1) * self.params.get('girder_spacing', 2750) + 2 * self.params.get('deck_overhang', 1000)
+        else:
+            total_model_width = 2 * self.params.get('deck_overhang', 1000)
+        total_model_width = max(total_model_width, 1.0)
+
+        base_w_internal, base_h_internal = 900, 750
+        margin = 60
+        avail_base_w = base_w_internal - 2 * margin
+        avail_base_h = base_h_internal - 2 * margin - 60
+        
+        base_scale_x = avail_base_w / span_length
+        base_scale_y = avail_base_h / total_model_width
+        base_scale = min(base_scale_x, base_scale_y)
+        
+        current_scale = self.zoom_level * base_scale
+        content_width_px = span_length * current_scale + 2 * margin
+        
+        # The widget should be at least as wide/high as its viewport OR content dimensions
+        if self.scroll_area and self.scroll_area.viewport():
+            vp = self.scroll_area.viewport()
+            vp_w, vp_h = vp.width(), vp.height()
+        else:
+            vp_w, vp_h = base_width, base_height
+            
+        new_width = int(max(vp_w, content_width_px + 50))
+        new_height = int(max(vp_h, base_height * self.zoom_level))
+        
         self.setMinimumSize(new_width, new_height)
         self.resize(new_width, new_height)
     
@@ -304,7 +428,7 @@ class TopViewCADWidget(QWidget):
         
         self.zoom_in_btn.move(int(x + 10), int(y))
         self.zoom_out_btn.move(int(x + 10), int(y + 30))
-        self.zoom_reset_btn.move(int(x), int(y + 60))
+        self.zoom_reset_btn.move(int(x + 10), int(y + 60))
         
         # Ensure buttons are visible on top
         self.zoom_in_btn.show()
@@ -323,8 +447,18 @@ class TopViewCADWidget(QWidget):
                 self._position_zoom_buttons()
         return super().eventFilter(obj, event)
 
-    def update_params(self, params):
+    def update_params(self, params: dict):
         self.params.update(params)
+
+        # enable value display only when user edits inputs
+        if "span_length" in params:
+            self.show_span_values = True
+
+        if "carriageway_width" in params:
+            self.show_carriageway_values = True
+
+        self.show_dimensions = True
+        self.zoom_reset() # Auto-fit height on parameter change
         self.update()
     
     def mouseMoveEvent(self, event):
@@ -356,6 +490,8 @@ class TopViewCADWidget(QWidget):
                               bg_color=QColor(255, 255, 255, 230), 
                               text_color=QColor(0, 0, 0), font_size=9, bold=False):
 
+        # defensive check: font size must be > 0
+        font_size = max(1, font_size)
         font_weight = QFont.Bold if bold else QFont.Normal
         font = QFont('Arial', font_size, font_weight)
         painter.setFont(font)
@@ -449,12 +585,12 @@ class TopViewCADWidget(QWidget):
             text_x = (x1 + x2) / 2
             text_y = y1 - 8 + text_offset if offset >= 0 else y1 + 15 + text_offset
             
-            font = QFont('Arial', 9, QFont.Bold)
+            font = QFont('Arial', 9, QFont.Normal)
             metrics = painter.fontMetrics()
             text_width = metrics.boundingRect(text).width()
             
             self.draw_text_with_background(painter, text_x - text_width/2, text_y, text, 
-                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, True)
+                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
         else:
             top_arrow = [
                 QPointF(x1, y1),
@@ -488,7 +624,7 @@ class TopViewCADWidget(QWidget):
             text_y = (y1 + y2) / 2 + 3
             
             self.draw_text_with_background(painter, text_x, text_y, text,
-                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, True)
+                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
     
     def draw_dimension_arrow_text_outside(self, painter, x1, y1, x2, y2, text, horizontal=True, 
                                           text_side='right', text_offset=15):
@@ -528,13 +664,13 @@ class TopViewCADWidget(QWidget):
                 text_x = (x1 + x2) / 2
                 text_y = y1 + text_offset + 10
                 
-            font = QFont('Arial', 9, QFont.Bold)
+            font = QFont('Arial', 9, QFont.Normal)
             painter.setFont(font)
             metrics = painter.fontMetrics()
             text_width = metrics.boundingRect(text).width()
             
             self.draw_text_with_background(painter, text_x - text_width/2, text_y, text, 
-                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, True)
+                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
         else:
             painter.drawLine(QPointF(x1 - ext_len, y1), QPointF(x1 + ext_len, y1))
             painter.drawLine(QPointF(x2 - ext_len, y2), QPointF(x2 + ext_len, y2))
@@ -562,7 +698,7 @@ class TopViewCADWidget(QWidget):
                 text_x = x1 + text_offset
             
             self.draw_text_with_background(painter, text_x, text_y, text,
-                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, True)
+                                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
         
     def draw_leader_arrow(self, painter, from_x, from_y, to_x, to_y, text, bg_color=QColor(255, 255, 255, 250), text_color=QColor(0, 0, 0)):
         """a leader line with arrow pointing to component"""
@@ -590,7 +726,7 @@ class TopViewCADWidget(QWidget):
         painter.setBrush(QBrush(QColor(0, 0, 0)))
         painter.drawPolygon(QPolygonF(arrow_points))
         
-        self.draw_text_with_background(painter, from_x - 5, from_y - 5, text, bg_color, text_color, 9, True)
+        self.draw_text_with_background(painter, from_x - 5, from_y - 5, text, bg_color, text_color, 9, False)
     
     def draw_clean_leader_line(self, painter, target_x, target_y, label_x, label_y, text, 
                                 text_color=QColor(0, 0, 0), line_color=QColor(100, 100, 100)):
@@ -606,7 +742,7 @@ class TopViewCADWidget(QWidget):
         painter.drawEllipse(QPointF(target_x, target_y), 3, 3)
         
         # Draw text at label position
-        font = QFont('Arial', 9, QFont.Bold)
+        font = QFont('Arial', 9, QFont.Normal)
         painter.setFont(font)
         metrics = painter.fontMetrics()
         text_width = metrics.boundingRect(text).width()
@@ -622,7 +758,7 @@ class TopViewCADWidget(QWidget):
         
         # Draw text with background
         self.draw_text_with_background(painter, text_x, text_y, text,
-                                       QColor(255, 255, 255, 240), text_color, 9, True)
+                                       QColor(255, 255, 255, 240), text_color, 9, False)
     
     def compute_deck_total_width(self):
         """Compute total deck width including median if present"""
@@ -632,24 +768,35 @@ class TopViewCADWidget(QWidget):
         fp_config = self.params.get('footpath_config', 'both')
         median_present = self.params.get('median_present', False)
         median_width = self.params.get('median_width', 1200)
+        RAILING_WIDTH = 375 # Standard outer width of RCC railing in mm
         
+        if fp_config == 'both':
+            num_fp = 2
+        elif fp_config in ['left', 'both']:
+            # Handle cases where config might be 'left' or 'right'
+            # Note: 'both' is already handled, 'left' or 'right' means 1 footpath
+            num_fp = 1 if fp_config in ['left', 'right'] else 0
+        else:
+            num_fp = 0
+            
+        # Re-evaluating num_fp for clarity
+        num_fp = 0
         if fp_config == 'both':
             num_fp = 2
         elif fp_config in ['left', 'right']:
             num_fp = 1
-        else:
-            num_fp = 0
         
         # If median is present, we have full carriageway on each side
+        # Footpath width is clear width, so we add railing width for each footpath
         if median_present:
             deck_total = (carriageway * 2 +  # Full carriageway on each side
                           median_width +
                           2 * crash_barrier + 
-                          num_fp * footpath_width)
+                          num_fp * (footpath_width + RAILING_WIDTH))
         else:
             deck_total = (carriageway + 
                           2 * crash_barrier + 
-                          num_fp * footpath_width)
+                          num_fp * (footpath_width + RAILING_WIDTH))
         
         return deck_total, num_fp
 
@@ -739,19 +886,20 @@ class TopViewCADWidget(QWidget):
         self.top_view_hover_zones = []
         
         # Define colors
-        GIRDER_COLOR = QColor(40, 90, 160) 
-        CROSS_BRACING_COLOR = QColor(220, 130, 40)
-        END_DIAPHRAGM_COLOR = QColor(120, 70, 40)
+        GIRDER_COLOR = CrossSectionCADWidget.GIRDER_COLOR
+        CROSS_BRACING_COLOR = CrossSectionCADWidget.CROSS_BRACING_COLOR
+        END_DIAPHRAGM_COLOR = CrossSectionCADWidget.END_DIAPHRAGM_COLOR
+
         
         # Highlight colors 
-        GIRDER_HIGHLIGHT = QColor(80, 140, 220) 
-        CROSS_BRACING_HIGHLIGHT = QColor(255, 180, 90)
-        END_DIAPHRAGM_HIGHLIGHT = QColor(180, 120, 80)
-        BEARING_HIGHLIGHT = QColor(255, 80, 80)
+        GIRDER_HIGHLIGHT = CAD_HOVER_GREY
+        CROSS_BRACING_HIGHLIGHT = CAD_HOVER_GREY
+        END_DIAPHRAGM_HIGHLIGHT = CAD_HOVER_GREY
+        BEARING_HIGHLIGHT = CAD_HOVER_GREY
         
         # Use base canvas dimensions for consistent drawing regardless of zoom
-        width = 800 * self.zoom_level
-        height = 600 * self.zoom_level
+        width = 900 * self.zoom_level
+        height = 750 * self.zoom_level
 
         # Reduced margins for better space utilization in split view
         margin = 60
@@ -910,7 +1058,7 @@ class TopViewCADWidget(QWidget):
                 ))
 
         # Draw center line of bearings
-        bearing_color = BEARING_HIGHLIGHT if bearing_hovered else QColor(255, 0, 0)
+        bearing_color = BEARING_HIGHLIGHT if bearing_hovered else CAD_DARK_GREY
         bearing_width = 2.5 if bearing_hovered else 1.5
         
         pen = QPen(bearing_color, bearing_width, Qt.CustomDashLine)
@@ -978,12 +1126,13 @@ class TopViewCADWidget(QWidget):
                                         skew_rad, scale, left_bearing_base_x)
 
         # Add dimensions (always visible) and hover labels (only on hover)
-        self.add_clean_top_view_dimensions(
-            painter, girder_lines, girder_positions_y, scale, n, bracing_positions_x,
-            skew_rad, start_x_base, end_x_base, left_bearing_base_x, right_bearing_base_x,
-            top_extent, bottom_extent, left_top_x, right_top_x,
-            GIRDER_COLOR, CROSS_BRACING_COLOR, END_DIAPHRAGM_COLOR
-        )
+        if self.show_dimensions:
+            self.add_clean_top_view_dimensions(
+                painter, girder_lines, girder_positions_y, scale, n, bracing_positions_x,
+                skew_rad, start_x_base, end_x_base, left_bearing_base_x, right_bearing_base_x,
+                top_extent, bottom_extent, left_top_x, right_top_x,
+                GIRDER_COLOR, CROSS_BRACING_COLOR, END_DIAPHRAGM_COLOR
+            )
 
         # Notes removed for cleaner layout in split view
 
@@ -1077,10 +1226,12 @@ class TopViewCADWidget(QWidget):
         label_y = ref_y - label_radius * math.sin(label_angle_rad)
         
         # Format with explicit sign (+ or -) - showing ORIGINAL input value
-        if skew_deg >= 0:
-            angle_text = f"Skew = +{abs(skew_deg):.1f}°"
-        else:
-            angle_text = f"Skew = {skew_deg:.1f}°"
+        angle_text = "Skew"
+        if self.show_carriageway_values:
+            if skew_deg >= 0:
+                angle_text += f" = +{abs(skew_deg):.1f}°"
+            else:
+                angle_text += f" = {skew_deg:.1f}°"
         
         # Adjust label position based on skew direction
         if skew_deg > 0:
@@ -1114,31 +1265,41 @@ class TopViewCADWidget(QWidget):
         y_offset_last = last_girder_y - girder_positions_y[0]
         x_offset_last = y_offset_last * math.tan(skew_rad)
         
-        dim_y_base = last_girder_y + 50
+        #dim_y_base = last_girder_y + 50
+        dim_y_base = last_girder_y + 28
         
-        # SPAN LENGTH dimension (always visible)
+        # BRACING SPACING dimension (closer to bridge)
         dim_y1 = dim_y_base
-        x1_span = last_girder['x1']
-        x2_span = last_girder['x2']
-        span_m = self.params['span_length'] / 1000
-        
-        self.draw_dimension_arrow_with_extensions_up(
-            painter, x1_span, dim_y1, x2_span, dim_y1,
-            f"Span Length = {span_m:.1f} m", last_girder_y
-        )
-
-        # BRACING SPACING dimension (always visible)
         if self.params['cross_bracing_spacing'] > 0 and len(bracing_positions) > 1:
-            dim_y2 = dim_y_base + 15
             cb_spacing_m = self.params['cross_bracing_spacing'] / 1000
+            label_cb = "Bracing Spacing"
+            if self.show_span_values:
+                label_cb += f" = {cb_spacing_m:.2f} m"
             
             x1_brace = bracing_positions[0] + x_offset_last
             x2_brace = bracing_positions[1] + x_offset_last
             
             self.draw_dimension_arrow_with_extensions_up(
-                painter, x1_brace, dim_y2, x2_brace, dim_y2,
-                f"Bracing Spacing = {cb_spacing_m:.2f} m", last_girder_y
+                painter, x1_brace, dim_y1, x2_brace, dim_y1,
+                label_cb, last_girder_y
             )
+            dim_y_next = dim_y_base + DIM_STACK_GAP
+        else:
+            dim_y_next = dim_y_base
+
+        # SPAN LENGTH dimension (below bracing spacing)
+        dim_y2 = dim_y_next
+        x1_span = last_girder['x1']
+        x2_span = last_girder['x2']
+        span_m = self.params['span_length'] / 1000
+        label_span = "Span Length"
+        if self.show_span_values:
+            label_span += f" = {span_m:.1f} m"
+        
+        self.draw_dimension_arrow_with_extensions_up(
+            painter, x1_span, dim_y2, x2_span, dim_y2,
+            label_span, last_girder_y
+        )
 
         # GIRDER SPACING dimension (always visible)
         if n > 1:
@@ -1160,31 +1321,34 @@ class TopViewCADWidget(QWidget):
             )
             
             # Girder Spacing label + value (3 lines)
-            label_x = max(x1_at_end, x2_at_end) + 25
-            label_y = (y1 + y2) / 2
+            label_x = max(x1_at_end, x2_at_end) + 12
+            LABEL_OFFSET = 14  # tweak 10–18 if needed
+            label_y = (y1 + y2) / 2 + LABEL_OFFSET
 
-            label_text = f"Girder\nSpacing\n= {gs_m:.2f} m"
+            label_text = "Girder\nSpacing"
+            if self.show_carriageway_values:
+                label_text += f"\n= {gs_m:.2f} m"
 
             self.draw_text_with_background(
                 painter, label_x, label_y,
                 label_text,
-                QColor(255, 255, 255, 250),
-                QColor(0, 100, 0), 9, True
+                QColor(255, 255, 255, 240),
+                QColor(0, 0, 0), 9, False
             )
 
         # CL OF BEARING labels - ALWAYS VISIBLE (moved outside hover condition)
-        label_y_bearing = top_extent - 15
+        label_y_bearing = top_extent - 8
         
-        left_label_x = left_top_x - 80
+        left_label_x = left_top_x - 45
         right_label_x = right_top_x - 45
         
         self.draw_text_with_background(painter, left_label_x, label_y_bearing,
-                                    "CL of Bearing", QColor(255, 255, 255, 250),
-                                    QColor(200, 0, 0), 9, True)
+                                    "CL of Bearing", QColor(255, 255, 255, 240),
+                                    QColor(0, 0 ,0), 9, False)
         
         self.draw_text_with_background(painter, right_label_x, label_y_bearing,
-                                    "CL of Bearing", QColor(255, 255, 255, 250),
-                                    QColor(200, 0, 0), 9, True)
+                                    "CL of Bearing", QColor(255, 255, 255, 240),
+                                    QColor(0, 0 ,0), 9, False)
 
         # HOVER LABELS (only shown when hovered) 
         
@@ -1195,10 +1359,12 @@ class TopViewCADWidget(QWidget):
             target_y = first_girder['y']
             
             label_x = target_x
-            label_y = target_y - 30
+            
+            label_y = target_y - LEADER_TEXT_OFFSET
+            label_offset = LEADER_TEXT_OFFSET
             
             self.draw_clean_leader_line(painter, target_x, target_y, label_x, label_y,
-                                    "Girder", girder_color, QColor(0, 100, 0))
+                                    "Girder", CAD_DARK_GREY, CAD_DARK_GREY)
 
         # 2. CROSS BRACING label - show only when cross bracing is hovered
         if n > 1 and len(bracing_positions) > 0 and self.hovered_top_view_element == 'cross_bracing':
@@ -1221,7 +1387,7 @@ class TopViewCADWidget(QWidget):
             label_y = target_y - label_offset
             
             self.draw_clean_leader_line(painter, target_x, target_y, label_x, label_y,
-                                    "Cross Bracing", cross_bracing_color, QColor(200, 100, 0))
+                                    "Cross Bracing", CAD_DARK_GREY, CAD_DARK_GREY)
         
         # 3. END DIAPHRAGM label - show only when end diaphragm is hovered
         if n > 1 and len(girder_positions_y) >= 2 and self.hovered_top_view_element == 'end_diaphragm':
@@ -1241,11 +1407,11 @@ class TopViewCADWidget(QWidget):
             label_y = target_y + 5
             
             self.draw_clean_leader_line(painter, target_x, target_y, label_x, label_y,
-                                    "End Diaphragm", end_diaphragm_color, QColor(139, 69, 19))
+                                    "End Diaphragm", CAD_DARK_GREY, QColor(139, 69, 19))
 
     def draw_dimension_arrow_with_extensions_up(self, painter, x1, y1, x2, y2, text, girder_y):
         """Dimension line with arrows and extension lines going UP to girder level (dimension below)"""
-        painter.setPen(QPen(QColor(0, 0, 0), 0.8))
+        painter.setPen(QPen(QColor(0, 0, 0), 1.0))
         
         # Draw main dimension line
         painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
@@ -1256,7 +1422,7 @@ class TopViewCADWidget(QWidget):
         painter.drawLine(QPointF(x2, y2), QPointF(x2, girder_y))
         
         # Reset pen for arrows
-        painter.setPen(QPen(QColor(0, 0, 0), 0.8))
+        painter.setPen(QPen(QColor(0, 0, 0), 1.0))
         
         # Draw end ticks
         ext_len = 6
@@ -1285,17 +1451,17 @@ class TopViewCADWidget(QWidget):
 
         painter.drawPolygon(QPolygonF(right_arrow))
         
-        # Draw text BELOW the dimension line (above in terms of value since we add to y)
+        # Draw text ABOVE the dimension line to prevent blotting out the line
         text_x = (x1 + x2) / 2
-        text_y = y1 + 15  # Below the dimension line
+        text_y = y1 - 6
         
-        font = QFont('Arial', 9, QFont.Bold)
+        font = QFont('Arial', 9, QFont.Normal)
         painter.setFont(font)
         metrics = painter.fontMetrics()
         text_width = metrics.boundingRect(text).width()
         
         self.draw_text_with_background(painter, text_x - text_width/2, text_y, text, 
-                                    QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, True)
+                                    QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
 
 
     def draw_skewed_dimension_arrow(self, painter, x1, y1, x2, y2, text, skew_rad):
@@ -1363,11 +1529,11 @@ class TopViewCADWidget(QWidget):
         mid_x = (x1 + x2) / 2
         mid_y = (y1 + y2) / 2
         
-        text_x = mid_x + 8
-        text_y = mid_y + 4
+        text_x = mid_x + DIM_TEXT_GAP
+        text_y = mid_y
         
         self.draw_text_with_background(painter, text_x, text_y, text,
-                                    QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, True)
+                                    QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
 
     def add_clean_top_view_notes(self, painter, height):
         """Add professional notes"""

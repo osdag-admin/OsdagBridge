@@ -67,8 +67,8 @@ class IRC6_2017:
         # Mapping to the 7 longitudinal positions in `load_positions_x`.
         # Values provided by user (converted to kN):
         # [8, 12, 12, 17, 17, 17, 17]
-        wheel_loads = [8 * kN, 12 * kN, 12 * kN, 17 * kN,
-                      17 * kN, 17 * kN, 17 * kN]
+        wheel_loads = [8 * t, 12 * t, 12 * t, 17 * t,
+                      17 * t, 17 * t, 17 * t]
 
         # Define longitudinal positions of each axle
         load_positions_x = [
@@ -78,7 +78,8 @@ class IRC6_2017:
                 front_gap + axle_dist1 + axle_dist2 + gap_bogie,
                 front_gap + axle_dist1 + axle_dist2 + gap_bogie + bogie_axle_dist1,
                 front_gap + axle_dist1 + axle_dist2 + gap_bogie + bogie_axle_dist1 + bogie_axle_dist2,
-                front_gap + axle_dist1 + axle_dist2 + gap_bogie + bogie_axle_dist1 + bogie_axle_dist2 + rear_gap,
+                front_gap + axle_dist1 + axle_dist2 + gap_bogie + bogie_axle_dist1 + bogie_axle_dist2 + bogie_axle_dist1,
+                front_gap + axle_dist1 + axle_dist2 + gap_bogie + bogie_axle_dist1 + bogie_axle_dist2 + bogie_axle_dist1 + rear_gap,
                 ]
             
         # Transverse position of each wheel
@@ -106,14 +107,14 @@ class IRC6_2017:
         Returns a dictionary with keys:
             'x' - list of longitudinal load positions vertex(m)
             'z' - list of transverse load positions vertex(m)
-            'wheel_loads' - list of wheel loads (kN)
+            'wheel_loads' - list of wheel loads (t)
         """
         # Define units
         start_vertex_x = 0.0 * m
         end_vertex_x = 4.570 * m
 
-        # Define track loads (kN/m2) 
-        track_loads_udl = 4.32 * kN / m2 
+        # Define track loads (t/m) 
+        track_loads_udl = 7.66 * t / m 
 
         # Define longitudinal positions of track vertices
         load_positions_x = [
@@ -157,8 +158,8 @@ class IRC6_2017:
        # Mapping to the 8 longitudinal positions in `load_positions_x`.
        # Values provided by user (converted to kN):
        # [2.7, 2.7, 11.4, 11.4, 6.8, 6.8, 6.8, 6.8]
-        wheel_loads = [2.7 * kN, 2.7 * kN, 11.4 * kN, 11.4 * kN,
-                      6.8 * kN, 6.8 * kN, 6.8 * kN, 6.8 * kN]
+        wheel_loads = [2.7 * t, 2.7 * t, 11.4 * t, 11.4 * t,
+                      6.8 * t, 6.8 * t, 6.8 * t, 6.8 * t]
 
         # Define longitudinal positions of each axle
         load_positions_x = [
@@ -169,6 +170,7 @@ class IRC6_2017:
             front_gap + axle_dist1 + axle_dist2 + axle_dist3 + gap_bogie,
             front_gap + axle_dist1 + axle_dist2 + axle_dist3 + gap_bogie + bogie_axle_dist,
             front_gap + axle_dist1 + axle_dist2 + axle_dist3 + gap_bogie + bogie_axle_dist + bogie_axle_dist,
+            front_gap + axle_dist1 + axle_dist2 + axle_dist3 + gap_bogie + bogie_axle_dist + bogie_axle_dist + bogie_axle_dist,
             front_gap + axle_dist1 + axle_dist2 + axle_dist3 + gap_bogie + bogie_axle_dist + bogie_axle_dist + bogie_axle_dist + rear_gap,
             ]
         # Transverse position of each wheel
@@ -363,18 +365,18 @@ class IRC6_2017:
         Returns a dictionary with keys:
             'x' - list of longitudinal load positions (m)
             'z' - list of transverse load positions (m)
-            'wheel_loads' - list of wheel loads (kN)
+            'wheel_loads' - list of wheel loads (t)
         """
         # Define units
         axle_dist1= 4.50 * m
         axle_dist2= 1.40 * m
    
 
-        # Define wheel loads (kN) for each longitudinal axle position
+        # Define wheel loads (t) for each longitudinal axle position
         # Mapping to the 3 longitudinal positions in `load_positions_x`.
-        # Values provided by user (converted to kN):
+        # Values provided by user (converted to t):
         # [12, 14, 14]
-        wheel_loads = [12 * kN, 14 * kN, 14 * kN]
+        wheel_loads = [12 * t, 14 * t, 14 * t]
 
         # Define longitudinal positions of each axle
         load_positions_x = [
@@ -446,6 +448,31 @@ class IRC6_2017:
             "clause": "IRC 6:2017 - 206.2"
         }
 
+
+    @staticmethod
+    def cl_206_4_crash_barrier_load():
+        """
+        IRC:6-2017 Clause 206.4 — Crash Barrier Load.
+
+        A horizontal load of 7.5 kN/m is applied at 1.0 m above the deck
+        surface for design of the deck overhang and crash barrier anchorage.
+
+        Returns
+        -------
+        dict
+            horizontal_load_kN_per_m : float  — 7.5 kN/m
+            height_m                 : float  — 1.0 m above deck surface
+            moment_at_base_kNm_per_m : float  — 7.5 kNm/m (= 7.5 × 1.0)
+            clause                   : str
+        """
+        horizontal_load = 7.5   # kN/m
+        height_m = 1.0           # m above deck surface
+        return {
+            "horizontal_load_kN_per_m" : horizontal_load,
+            "height_m"                 : height_m,
+            "moment_at_base_kNm_per_m" : horizontal_load * height_m,
+            "clause"                   : "IRC 6:2017 - 206.4",
+        }
 
     @staticmethod
     def cl_206_5_railing_load():
@@ -588,14 +615,10 @@ class IRC6_2017:
                 Vz_33 = V_low + ratio * (V_high - V_low)
                 Pz_33 = P_low + ratio * (P_high - P_low)
 
-        # Apply scaling rules
+        # IRC:6-2017 Cl.209.2: for Vb ≠ 33 m/s, scale Table 12 values by Vb/33 (speed) and (Vb/33)² (pressure)
         Vb = basic_wind_speed
-
-        # (2) Wind speed scale: Vz ∝ Vb / 33
         Vz_scaled = Vz_33 * (Vb / 33)
-
-        # (3) Wind pressure scale: Pz ∝ (Vb / 33)^2
-        Pz_scaled = Pz_33 * (Vb / 33)**2
+        Pz_scaled = Pz_33 * (Vb / 33) ** 2
 
         return {"Vz": Vz_scaled, "Pz": Pz_scaled}
 
@@ -616,112 +639,132 @@ class IRC6_2017:
             d_depth=None
     ):
         """
-        Computes transverse wind force as per IRC:6-2017 Clause 209.3.3.
+        Computes total transverse wind force as per IRC:6-2017 Clause 209.3.3.
+
+        Formula: FT = Pz × A1 × G × CD  (in Newtons, total force)
 
         Parameters:
-            span (float): span in meters
-            railing_height (float): height of railing in m
-            crash_barrier_height (float): height of crash barrier in m
-            deck_thickness (float): thickness of deck in m
-            openings_in_railing (float): openings in railing in m
-            height_for_pz (float): height at which Pz is evaluated (Table 12)
-            terrain (str): "plain" or "obstructed"
-            basic_wind_speed (float): V_b in m/s
-            girder_section (str): "plate" or "rolled"
-            number_of_girders (int): number of girders
-            c_spacing (float, optional): centre-to-centre spacing for plate girders (n ≥ 2)
-            b_width (float, optional): width for rolled beams (for CD)
-            d_depth (float, optional): depth for rolled beams (for CD)
+            span (float): span length in metres. (KEY_SPAN)
+            railing_height (float): height of railing in m. (KEY_RAILING_HEIGHT)
+                Set to 0 if crash barrier is used instead.
+            crash_barrier_height (float): height of crash barrier in m.
+                Set to 0 if railing is used instead.
+            deck_thickness (float): thickness of deck slab in m. (KEY_DECK_THICKNESS)
+            openings_in_railing (float): net openings in railing in m (use 0 if solid/unknown).
+            height_for_pz (float): height at which Pz is evaluated via Table 12, in m.
+            terrain (str): "plain" or "obstructed".
+            basic_wind_speed (float): basic wind speed V_b in m/s.
+            girder_section (str): "slab", "plate", or "rolled".
+            number_of_girders (int): number of girders. (KEY_NO_OF_GIRDERS)
+            c_spacing (float, optional): centre-to-centre spacing of adjacent girders in m.
+                (KEY_GIRDER_SPACING) Required for plate girders (n≥2) and rolled beams (n≥2).
+            b_width (float, optional): width of beam/box section in m.
+                Required for rolled single and rolled multiple cases.
+            d_depth (float, optional): depth of windward girder in m. (KEY_GIRDER_DEPTH)
+                Required for all beam/girder cases except single plate.
 
         Returns:
-            dict: {"A1":..., "Pz":..., "G":..., "CD":..., "FT":...}
+            dict: {"A1": m², "Pz": N/m², "G": dimensionless, "CD": dimensionless, "FT": N}
         """
-        # -----------------------------
-        # 1. Compute A1 (solid exposed area)
-        # -----------------------------
-        exposed_height = railing_height + crash_barrier_height + deck_thickness - openings_in_railing
+        # ------------------------------------------------------------------
+        # 1. A1 — total projected solid area (m²)  [IRC:6-2017 Cl.209.3.2]
+        # ------------------------------------------------------------------
+        exposed_height = (max(railing_height, crash_barrier_height)
+                          + deck_thickness - openings_in_railing)
         if exposed_height < 0:
-            exposed_height = 0
+            exposed_height = 0.0
+        A1 = span * exposed_height
 
-        
-        # -----------------------------
-        # 2. Compute Pz using Table 12 scaling
-        # -----------------------------
+        # ------------------------------------------------------------------
+        # 2. Pz — design wind pressure (N/m²) from Table 12
+        # ------------------------------------------------------------------
         Pz = IRC6_2017.table_12(height_for_pz, terrain, basic_wind_speed)["Pz"]
 
-        A1 = exposed_height   # m2 per metre length of bridge
+        # ------------------------------------------------------------------
+        # 3. G — gust factor (= 2.0 for highway bridges with span ≤ 150 m)
+        # ------------------------------------------------------------------
+        if span <= 150.0:
+            G = 2.0
+        else:
+            raise ValueError(
+                "G for span > 150 m is not tabulated in IRC:6-2017 Cl.209.3.3. "
+                "A specialist wind study is required."
+            )
 
-        # -----------------------------
-        # 3. Gust factor G (IRC:6 says G = 2 for spans ≤150m)
-        # -----------------------------
-        G = 2.0
+        # ------------------------------------------------------------------
+        # 4. CD — drag coefficient
+        # ------------------------------------------------------------------
+        girder_section = girder_section.strip().lower()
 
-        # -----------------------------
-        # 4. Compute Drag Coefficient CD
-        # -----------------------------
-        girder_section = girder_section.lower()
-        # Case 1: Plate girder, single girder
-        if girder_section == "plate" and number_of_girders == 1:
+        # Case 0: Slab bridge (b/d ≥ 10)
+        if girder_section == "slab":
+            CD = 1.1
+
+        # Case 1: Single plate girder
+        elif girder_section == "plate" and number_of_girders == 1:
             CD = 2.2
 
-        # Case 2: Plate girder, 2 or more girders
+        # Case 2: Two or more plate girders
+        # CD = 2(1 + c/20d), not more than 4.0
+        # c = centre-to-centre distance of adjacent girders, d = depth of windward girder
         elif girder_section == "plate" and number_of_girders >= 2:
             if c_spacing is None or d_depth is None:
-                raise ValueError("For plate girders with n>=2, c_spacing and d_depth must be provided.")
-            ratio = c_spacing / (20 * d_depth)
-            if ratio < 4:
-                CD = 2 * (1 + ratio)
-            else:
-                CD = 2 * (1 + 4)  # upper bound
+                raise ValueError(
+                    "For plate girders with n >= 2, c_spacing and d_depth must be provided."
+                )
+            CD = min(2.0 * (1.0 + c_spacing / (20.0 * d_depth)), 4.0)
 
-        # Case 3: Rolled beam, single girder
+        # Case 3: Single rolled beam / box girder
+        # CD interpolated between 1.5 (b/d=2) and 1.3 (b/d≥6)
         elif girder_section == "rolled" and number_of_girders == 1:
             if b_width is None or d_depth is None:
-                raise ValueError("For rolled beam girder, b_width and d_depth must be provided.")
+                raise ValueError(
+                    "For a single rolled beam/box girder, b_width and d_depth must be provided."
+                )
             bd_ratio = b_width / d_depth
-
-            if abs(bd_ratio - 2) < 1e-6:
+            if bd_ratio <= 2.0:
                 CD = 1.5
-            elif bd_ratio >= 6:
+            elif bd_ratio >= 6.0:
                 CD = 1.3
             else:
-                # interpolate between 1.5 at b/d=2 and 1.3 at b/d=6
-                CD = 1.5 + (bd_ratio - 2) * (1.3 - 1.5) / (6 - 2)
+                CD = 1.5 + (bd_ratio - 2.0) * (1.3 - 1.5) / (6.0 - 2.0)
 
-        # Case 4: Rolled beam, multiple girders
+        # Case 4: Two or more rolled beams / box girders
+        # CD = 1.5 × CD_single when clear distance / depth ≤ 7
         elif girder_section == "rolled" and number_of_girders >= 2:
-            if c_spacing is None or d_depth is None:
-                raise ValueError("For multiple rolled beams, c_spacing and d_depth must be provided.")
-            bd_ratio = c_spacing / d_depth
-
-            # Condition: ratio of clear distance to depth ≤ 7
-            if bd_ratio <= 7:
-                # CD = 1.5 × (CD_single_beam)
-                # CD_single_beam depends on b/d ratio of single beam
-                if b_width is None:
-                    raise ValueError("b_width must also be provided for multi-rolled girder case.")
-
+            if c_spacing is None or b_width is None or d_depth is None:
+                raise ValueError(
+                    "For multiple rolled beams, c_spacing, b_width, and d_depth must be provided."
+                )
+            # Clause uses clear distance between beams (not c/c spacing)
+            clear_over_depth = (c_spacing - b_width) / d_depth
+            if clear_over_depth <= 7.0:
                 bd_single = b_width / d_depth
-                if abs(bd_single - 2) < 1e-6:
+                if bd_single <= 2.0:
                     CD_single = 1.5
-                elif bd_single >= 6:
+                elif bd_single >= 6.0:
                     CD_single = 1.3
                 else:
-                    CD_single = 1.5 + (bd_single - 2) * (1.3 - 1.5) / (6 - 2)
-
+                    CD_single = 1.5 + (bd_single - 2.0) * (1.3 - 1.5) / (6.0 - 2.0)
                 CD = 1.5 * CD_single
             else:
-                raise ValueError("c/d ratio exceeds 7 → IRC does not define CD beyond this limit.")
+                raise ValueError(
+                    f"Clear distance / depth ratio ({clear_over_depth:.3f}) exceeds 7. "
+                    "IRC:6-2017 Cl.209.3.3 does not define CD beyond this limit."
+                )
 
         else:
-            raise ValueError("Invalid girder section input.")
+            raise ValueError(
+                f"Invalid girder_section '{girder_section}'. "
+                "Expected 'slab', 'plate', or 'rolled'."
+            )
 
-        # -----------------------------
-        # 5. Final transverse wind force
-        # -----------------------------
+        # ------------------------------------------------------------------
+        # 5. FT — total transverse wind force (N)
+        # ------------------------------------------------------------------
         FT = Pz * A1 * G * CD
-        
-        # Todo, check this clause also add Wind force eccentricity below slab top
+
+        # Todo: add wind force eccentricity below slab top
         return {
             "A1": A1,
             "Pz": Pz,
@@ -826,15 +869,15 @@ class IRC6_2017:
         """
         Returns braking force as per IRC:6-2017 Clause 211.2.
         Returns:
-            float: Braking force in kN (rounded to 3 decimal places)
+            float: Braking force in t (rounded to 3 decimal places)
         """
         for lane in range(1, design_lanes + 1):
             if lane == 1 or lane == 2:
                 wheel_load = IRC6_2017.cl_204_1_ClassA_vehicle()['wheel_loads']
-                braking_force_1 = 0.20 * sum(wheel_load)  # kN
+                braking_force_1 = 0.20 * sum(wheel_load)  # t
             if lane > 2:
                 wheel_load = IRC6_2017.cl_204_1_Class70R_vehicle_wheel()['wheel_loads']
-                braking_force_2 = 0.05 * sum(wheel_load)  # kN
+                braking_force_2 = 0.05 * sum(wheel_load)  # t
             
             total_braking_force = braking_force_1 + braking_force_2
         return round(total_braking_force, 3)
@@ -1426,181 +1469,296 @@ class IRC6_2017:
     # ANNEX B: PARTIAL SAFETY FACTORS FOR LOADS
     # =========================================================================
 
-    @staticmethod
-    def table_B2(load_type, effect='adding', load_category='leading', combination='basic'):
-        """
-        Returns the partial safety factor for ULS (Ultimate Limit State) as per 
-        IRC:6-2017 Table B.2.
-        
-        Parameters:
-            load_type (str): Type of load - 'dead_load', 'surfacing', 'live_load', 
-                            'wind_load', 'thermal_load', or 'seismic'
-            effect (str): 'adding' or 'relieving' (for dead_load and surfacing)
-            load_category (str): 'leading', 'accompanying', or 'construction' 
-                                (for live_load, wind_load, thermal_load)
-            combination (str): 'basic', 'accidental', or 'seismic'
-            
-        Returns:
-            float: Partial safety factor (None if not applicable)
-        """
-        load_type_lower = load_type.strip().lower()
-        effect_lower = effect.strip().lower()
-        load_category_lower = load_category.strip().lower()
-        combination_lower = combination.strip().lower()
-        
+    # IRC:6-2017 Table B.2 — Partial Safety Factor for Verification of Structural Strength
+    # key: (load_type, qualifier)  →  {combination: γ}
+    # qualifier: sub-row label (effect or load_category); None for single-row entries
+    # None value means not applicable ('-' in table); 'refer_note_2' follows table footnote
+    _TABLE_B2 = {
+        # 1. Permanent Loads
         # 1.1 Dead Load, Snow load (if present), SIDL except surfacing
-        if load_type_lower == 'dead_load':
-            factors = {
-                'adding': {'basic': 1.35, 'accidental': 1.0, 'seismic': 1.35},
-                'relieving': {'basic': 1.0, 'accidental': 1.0, 'seismic': 1.0},
-            }
-            if effect_lower not in factors:
-                raise ValueError(f"Invalid effect '{effect}'. Must be 'adding' or 'relieving'.")
-            if combination_lower not in factors[effect_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[effect_lower][combination_lower]
-        
+        ('dead_load',             'adding'):       {'basic': 1.35, 'accidental': 1.0,           'seismic': 1.35},
+        ('dead_load',             'relieving'):    {'basic': 1.0,  'accidental': 1.0,           'seismic': 1.0 },
         # 1.2 Surfacing
-        elif load_type_lower == 'surfacing':
-            factors = {
-                'adding': {'basic': 1.75, 'accidental': 1.0, 'seismic': 1.75},
-                'relieving': {'basic': 1.0, 'accidental': 1.0, 'seismic': 1.0},
-            }
-            if effect_lower not in factors:
-                raise ValueError(f"Invalid effect '{effect}'. Must be 'adding' or 'relieving'.")
-            if combination_lower not in factors[effect_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[effect_lower][combination_lower]
-        
-        # 2.1 Carriageway Live load and associated loads
-        elif load_type_lower == 'live_load':
-            factors = {
-                'leading': {'basic': 1.5, 'accidental': 0.75, 'seismic': None},
-                'accompanying': {'basic': 1.15, 'accidental': 0.2, 'seismic': 0.2},
-                'construction': {'basic': 1.35, 'accidental': 1.0, 'seismic': 1.0},
-            }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid load_category '{load_category}'. Must be 'leading', 'accompanying', or 'construction'.")
-            if combination_lower not in factors[load_category_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[load_category_lower][combination_lower]
-        
+        ('surfacing',             'adding'):       {'basic': 1.75, 'accidental': 1.0,           'seismic': 1.75},
+        ('surfacing',             'relieving'):    {'basic': 1.0,  'accidental': 1.0,           'seismic': 1.0 },
+        # 1.3 Prestress and Secondary effect of prestress
+        ('prestress',             None):           {'basic': 1.5,  'accidental': 'refer_note_2','seismic': None},
+        # 1.4 Back-fill Weight
+        ('backfill_weight',       'adverse'):      {'basic': 1.35, 'accidental': 1.0,           'seismic': 1.0 },
+        ('backfill_weight',       'relieving'):    {'basic': 1.0,  'accidental': 1.0,           'seismic': 1.0 },
+        # 1.5 Earth Pressure
+        ('earth_pressure',        'adding'):       {'basic': 1.5,  'accidental': 1.0,           'seismic': 1.0 },
+        ('earth_pressure',        'relieving'):    {'basic': 1.0,  'accidental': 1.0,           'seismic': 1.0 },
+        # 2. Variable Loads
+        # 2.1 Carriageway Live load + associated loads (braking, tractive, centrifugal) + Footway live load
+        ('live_load',             'leading'):      {'basic': 1.5,  'accidental': 0.75,          'seismic': None},
+        ('live_load',             'accompanying'): {'basic': 1.15, 'accidental': 0.2,           'seismic': 0.2 },
+        ('live_load',             'construction'): {'basic': 1.35, 'accidental': 1.0,           'seismic': 1.0 },
         # 2.2 Wind Load during service and construction
-        elif load_type_lower == 'wind_load':
-            factors = {
-                'leading': {'basic': 1.5, 'accidental': None, 'seismic': None},
-                'accompanying': {'basic': 0.9, 'accidental': None, 'seismic': None},
-            }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid load_category '{load_category}'. Must be 'leading' or 'accompanying'.")
-            if combination_lower not in factors[load_category_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[load_category_lower][combination_lower]
-        
+        ('wind_load',             'leading'):      {'basic': 1.5,  'accidental': None,          'seismic': None},
+        ('wind_load',             'accompanying'): {'basic': 0.9,  'accidental': None,          'seismic': None},
+        # 2.3 Live Load Surcharge effects (as accompanying load)
+        ('live_load_surcharge',   None):           {'basic': 1.2,  'accidental': 0.2,           'seismic': 0.2 },
+        # 2.4 Construction Dead Load (launching girder, truss, cantilever construction equipment)
+        ('construction_dead_load',None):           {'basic': 1.35, 'accidental': 1.0,           'seismic': 1.35},
         # 2.5 Thermal Loads
-        elif load_type_lower == 'thermal_load':
-            factors = {
-                'leading': {'basic': 1.5, 'accidental': None, 'seismic': None},
-                'accompanying': {'basic': 0.9, 'accidental': 0.5, 'seismic': 0.5},
-            }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid load_category '{load_category}'. Must be 'leading' or 'accompanying'.")
-            if combination_lower not in factors[load_category_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[load_category_lower][combination_lower]
-        
+        ('thermal_load',          'leading'):      {'basic': 1.5,  'accidental': None,          'seismic': None},
+        ('thermal_load',          'accompanying'): {'basic': 0.9,  'accidental': 0.5,           'seismic': 0.5 },
+        # 3. Accidental Loads
+        # 3.1 Vehicle collision
+        ('vehicle_collision',     None):           {'basic': None, 'accidental': 1.0,           'seismic': None},
+        # 3.2 Barge Impact
+        ('barge_impact',          None):           {'basic': None, 'accidental': 1.0,           'seismic': None},
+        # 3.3 Impact due to floating bodies
+        ('floating_bodies',       None):           {'basic': None, 'accidental': 1.0,           'seismic': None},
         # 4. Seismic Effect
-        elif load_type_lower == 'seismic':
-            # load_category used as 'service' or 'construction' for seismic
-            factors = {
-                'service': 1.5,
-                'construction': 0.75,
-            }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid condition '{load_category}'. Must be 'service' or 'construction'.")
-            return factors[load_category_lower]
-        
-        else:
-            raise ValueError(
-                f"Invalid load_type '{load_type}'. Must be 'dead_load', 'surfacing', "
-                "'live_load', 'wind_load', 'thermal_load', or 'seismic'."
-            )
+        ('seismic',               'service'):      {'basic': None, 'accidental': None,          'seismic': 1.5 },
+        ('seismic',               'construction'): {'basic': None, 'accidental': None,          'seismic': 0.75},
+    }
 
     @staticmethod
-    def table_B3(load_type, effect='adding', load_category='leading', combination='rare'):
+    def table_B2(load_type, qualifier=None, combination='basic'):
         """
-        Returns the partial safety factor for SLS (Serviceability Limit State) as per 
-        IRC:6-2017 Table B.3.
-        
-        Parameters:
-            load_type (str): Type of load - 'dead_load', 'surfacing', 'live_load', 
-                            'thermal_load', or 'wind_load'
-            effect (str): 'adding' or 'relieving' (for surfacing)
-            load_category (str): 'leading' or 'accompanying' (for live_load, thermal_load, wind_load)
-            combination (str): 'rare', 'frequent', or 'quasi_permanent'
-            
+        IRC:6-2017 Table B.2 — Partial Safety Factor for Verification of Structural Strength.
+
+        Args:
+            load_type (str): Load type key (see _TABLE_B2 for valid values).
+            qualifier (str | None): Sub-row label — effect ('adding', 'relieving', 'adverse')
+                or load category ('leading', 'accompanying', 'construction', 'service').
+                Pass None for single-row load types (e.g. 'prestress', 'live_load_surcharge').
+            combination (str): 'basic', 'accidental', or 'seismic'.
+
         Returns:
-            float: Partial safety factor (None if not applicable)
+            float | None | str: Partial safety factor, None (not applicable), or 'refer_note_2'.
         """
-        load_type_lower = load_type.strip().lower()
-        effect_lower = effect.strip().lower()
-        load_category_lower = load_category.strip().lower()
-        combination_lower = combination.strip().lower()
-        
+        key = (load_type.strip().lower(), qualifier.strip().lower() if qualifier else None)
+        return IRC6_2017._TABLE_B2[key][combination.strip().lower()]
+
+    @staticmethod
+    def uls_load_combinations() -> list[dict]:
+        """
+        Generate all valid ULS load combinations per IRC:6-2017 Table B.2.
+
+        Active load types
+        -----------------
+        Permanent : dead_load, surfacing
+        Variable  : live_load, wind_load, thermal_load
+        Accidental: vehicle_collision, barge_impact, floating_bodies (one at a time)
+        Seismic   : seismic (service and construction separately)
+
+        Skipped   : prestress, backfill_weight, earth_pressure,
+                    live_load_surcharge, construction_dead_load
+
+        Permanent load rule
+        -------------------
+        dead_load and surfacing each carry BOTH factors in every combination:
+            {'adding': γ_add, 'relieving': γ_rel}
+        Adding and relieving are mutually exclusive within a single check —
+        the caller applies whichever direction the load effect takes at that
+        cross-section. dead_load and surfacing always share the same effect
+        direction (both adding or both relieving together).
+
+        Variable load rule
+        ------------------
+        Exactly one variable load is 'leading'; the rest are 'accompanying'.
+        A permutation is excluded when the leading factor is None (not applicable
+        in that combination type). Consequently:
+          - Basic      : 3 permutations
+          - Accidental : 3 accidental loads × 1 valid leading (live_load only) = 3
+          - Seismic    : 2 service conditions (all variable loads accompanying)
+
+        Returns
+        -------
+        list[dict]  Each entry contains:
+            'name'             : str   — human-readable label
+            'combination_type' : str   — 'basic' | 'accidental' | 'seismic'
+            'factors'          : dict  — permanent loads as {'adding': γ, 'relieving': γ};
+                                         variable/accidental/seismic loads as flat γ (or None)
+        """
+        γ = IRC6_2017.table_B2
+
+        VARIABLE_LOADS   = ['live_load', 'wind_load', 'thermal_load']
+        ACCIDENTAL_LOADS = ['vehicle_collision', 'barge_impact', 'floating_bodies']
+
+        def perm_pair(load_type, combo):
+            return {
+                'adding':    γ(load_type, 'adding',    combo),
+                'relieving': γ(load_type, 'relieving', combo),
+            }
+
+        combinations = []
+
+        # ── Basic Combination ─────────────────────────────────────────────────
+        perm_basic = {
+            'dead_load': perm_pair('dead_load', 'basic'),
+            'surfacing':  perm_pair('surfacing',  'basic'),
+        }
+        for leading in VARIABLE_LOADS:
+            var = {
+                vl: γ(vl, 'leading' if vl == leading else 'accompanying', 'basic')
+                for vl in VARIABLE_LOADS
+            }
+            if var[leading] is None:
+                continue
+            combinations.append({
+                'name':             f'Basic — {leading} leading',
+                'combination_type': 'basic',
+                'factors':          {**perm_basic, **var},
+            })
+
+        # ── Accidental Combination ────────────────────────────────────────────
+        perm_acc = {
+            'dead_load': perm_pair('dead_load', 'accidental'),
+            'surfacing':  perm_pair('surfacing',  'accidental'),
+        }
+        for acc in ACCIDENTAL_LOADS:
+            for leading in VARIABLE_LOADS:
+                var = {
+                    vl: γ(vl, 'leading' if vl == leading else 'accompanying', 'accidental')
+                    for vl in VARIABLE_LOADS
+                }
+                if var[leading] is None:
+                    continue
+                combinations.append({
+                    'name':             f'Accidental ({acc}) — {leading} leading',
+                    'combination_type': 'accidental',
+                    'factors':          {**perm_acc, **var, acc: γ(acc, None, 'accidental')},
+                })
+
+        # ── Seismic Combination ───────────────────────────────────────────────
+        perm_seis = {
+            'dead_load': perm_pair('dead_load', 'seismic'),
+            'surfacing':  perm_pair('surfacing',  'seismic'),
+        }
+        var_seis = {vl: γ(vl, 'accompanying', 'seismic') for vl in VARIABLE_LOADS}
+        for condition in ['service', 'construction']:
+            combinations.append({
+                'name':             f'Seismic ({condition}) — all variable loads accompanying',
+                'combination_type': 'seismic',
+                'factors':          {**perm_seis, **var_seis, 'seismic': γ('seismic', condition, 'seismic')},
+            })
+
+        return combinations
+
+    # IRC:6-2017 Table B.3 — Partial Safety Factor for Verification of Serviceability Limit State
+    # Skipped: earth_pressure, prestress, shrinkage_creep, settlement, live_load_surcharge,
+    #          hydraulic_loads (water_current, wave_pressure, buoyancy)
+    _TABLE_B3 = {
+        # 1. Permanent Loads
         # 1.1 Dead Load, Snow load if present, SIDL except surfacing and back fill weight
-        if load_type_lower == 'dead_load':
-            return 1.0  # Always 1.0 for all SLS combinations
-        
+        ('dead_load',    None):           {'rare': 1.0,  'frequent': 1.0,  'quasi_permanent': 1.0 },
         # 1.2 Surfacing
-        elif load_type_lower == 'surfacing':
-            factors = {
-                'adding': {'rare': 1.2, 'frequent': 1.2, 'quasi_permanent': 1.2},
-                'relieving': {'rare': 1.0, 'frequent': 1.0, 'quasi_permanent': 1.0},
-            }
-            if effect_lower not in factors:
-                raise ValueError(f"Invalid effect '{effect}'. Must be 'adding' or 'relieving'.")
-            if combination_lower not in factors[effect_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[effect_lower][combination_lower]
-        
-        # 3.1 Carriageway load and associated loads
-        elif load_type_lower == 'live_load':
-            factors = {
-                'leading': {'rare': 1.0, 'frequent': 0.75, 'quasi_permanent': None},
-                'accompanying': {'rare': 0.75, 'frequent': 0.2, 'quasi_permanent': 0},
-            }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid load_category '{load_category}'. Must be 'leading' or 'accompanying'.")
-            if combination_lower not in factors[load_category_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[load_category_lower][combination_lower]
-        
+        ('surfacing',    'adding'):       {'rare': 1.2,  'frequent': 1.2,  'quasi_permanent': 1.2 },
+        ('surfacing',    'relieving'):    {'rare': 1.0,  'frequent': 1.0,  'quasi_permanent': 1.0 },
+        # 3. Variable Loads
+        # 3.1 Carriageway Live load + associated loads (braking, tractive, centrifugal) + Footway live load
+        ('live_load',    'leading'):      {'rare': 1.0,  'frequent': 0.75, 'quasi_permanent': None},
+        ('live_load',    'accompanying'): {'rare': 0.75, 'frequent': 0.2,  'quasi_permanent': 0   },
         # 3.2 Thermal Load
-        elif load_type_lower == 'thermal_load':
-            factors = {
-                'leading': {'rare': 1.0, 'frequent': 0.60, 'quasi_permanent': None},
-                'accompanying': {'rare': 0.60, 'frequent': 0.50, 'quasi_permanent': 0.5},
-            }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid load_category '{load_category}'. Must be 'leading' or 'accompanying'.")
-            if combination_lower not in factors[load_category_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[load_category_lower][combination_lower]
-        
+        ('thermal_load', 'leading'):      {'rare': 1.0,  'frequent': 0.60, 'quasi_permanent': None},
+        ('thermal_load', 'accompanying'): {'rare': 0.60, 'frequent': 0.50, 'quasi_permanent': 0.5 },
         # 3.3 Wind Load
-        elif load_type_lower == 'wind_load':
-            factors = {
-                'leading': {'rare': 1.0, 'frequent': 0.60, 'quasi_permanent': None},
-                'accompanying': {'rare': 0.60, 'frequent': 0.50, 'quasi_permanent': 0},
+        ('wind_load',    'leading'):      {'rare': 1.0,  'frequent': 0.60, 'quasi_permanent': None},
+        ('wind_load',    'accompanying'): {'rare': 0.60, 'frequent': 0.50, 'quasi_permanent': 0   },
+    }
+
+    @staticmethod
+    def table_B3(load_type, qualifier=None, combination='rare'):
+        """
+        IRC:6-2017 Table B.3 — Partial Safety Factor for Verification of Serviceability Limit State.
+
+        Args:
+            load_type (str): Load type key (see _TABLE_B3 for valid values).
+            qualifier (str | None): 'adding' or 'relieving' for surfacing;
+                'leading' or 'accompanying' for variable loads; None for dead_load.
+            combination (str): 'rare', 'frequent', or 'quasi_permanent'.
+
+        Returns:
+            float | None: Partial safety factor, or None (not applicable).
+        """
+        key = (load_type.strip().lower(), qualifier.strip().lower() if qualifier else None)
+        return IRC6_2017._TABLE_B3[key][combination.strip().lower()]
+
+    @staticmethod
+    def sls_load_combinations() -> list[dict]:
+        """
+        Generate all valid SLS load combinations per IRC:6-2017 Table B.3.
+
+        Active load types
+        -----------------
+        Permanent : dead_load, surfacing
+        Variable  : live_load, wind_load, thermal_load
+
+        Skipped   : earth_pressure, prestress, shrinkage_creep, settlement,
+                    live_load_surcharge, hydraulic_loads
+
+        Permanent load rule
+        -------------------
+        dead_load is always 1.0 (no adding/relieving distinction in SLS).
+        surfacing carries both factors: {'adding': γ_add, 'relieving': γ_rel}
+        — mutually exclusive per cross-section check, always applied together.
+
+        Variable load rule
+        ------------------
+        Exactly one variable load is 'leading'; the rest are 'accompanying'.
+        For quasi-permanent, no variable load has a valid leading factor (all
+        None), so one combination is generated with all loads accompanying.
+        Consequently:
+          - Rare            : 3 permutations
+          - Frequent        : 3 permutations
+          - Quasi-permanent : 1 (all variable loads accompanying)
+
+        Returns
+        -------
+        list[dict]  Each entry contains:
+            'name'             : str   — human-readable label
+            'combination_type' : str   — 'rare' | 'frequent' | 'quasi_permanent'
+            'factors'          : dict  — dead_load as flat γ; surfacing as
+                                         {'adding': γ, 'relieving': γ};
+                                         variable loads as flat γ (or None)
+        """
+        γ = IRC6_2017.table_B3
+
+        VARIABLE_LOADS = ['live_load', 'wind_load', 'thermal_load']
+
+        def surf_pair(combo):
+            return {
+                'adding':    γ('surfacing', 'adding',    combo),
+                'relieving': γ('surfacing', 'relieving', combo),
             }
-            if load_category_lower not in factors:
-                raise ValueError(f"Invalid load_category '{load_category}'. Must be 'leading' or 'accompanying'.")
-            if combination_lower not in factors[load_category_lower]:
-                raise ValueError(f"Invalid combination '{combination}'.")
-            return factors[load_category_lower][combination_lower]
-        
-        else:
-            raise ValueError(
-                f"Invalid load_type '{load_type}'. Must be 'dead_load', 'surfacing', "
-                "'live_load', 'thermal_load', or 'wind_load'."
-            )
+
+        combinations = []
+
+        # ── Rare & Frequent ───────────────────────────────────────────────────
+        for combo_type in ['rare', 'frequent']:
+            perm = {
+                'dead_load': γ('dead_load', None, combo_type),
+                'surfacing':  surf_pair(combo_type),
+            }
+            for leading in VARIABLE_LOADS:
+                var = {
+                    vl: γ(vl, 'leading' if vl == leading else 'accompanying', combo_type)
+                    for vl in VARIABLE_LOADS
+                }
+                if var[leading] is None:
+                    continue
+                combinations.append({
+                    'name':             f'SLS {combo_type.capitalize()} — {leading} leading',
+                    'combination_type': combo_type,
+                    'factors':          {**perm, **var},
+                })
+
+        # ── Quasi-permanent ───────────────────────────────────────────────────
+        # No variable load has a valid leading factor — all accompanying
+        perm_qp = {
+            'dead_load': γ('dead_load', None, 'quasi_permanent'),
+            'surfacing':  surf_pair('quasi_permanent'),
+        }
+        var_qp = {vl: γ(vl, 'accompanying', 'quasi_permanent') for vl in VARIABLE_LOADS}
+        combinations.append({
+            'name':             'SLS Quasi-permanent — all variable loads accompanying',
+            'combination_type': 'quasi_permanent',
+            'factors':          {**perm_qp, **var_qp},
+        })
+
+        return combinations

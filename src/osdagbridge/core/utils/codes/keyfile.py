@@ -3,16 +3,17 @@ kilo = 1e3
 milli = 1e-3
 N = 1
 m = 1
+g = 9.81
 mm = milli * m
 m2 = m ** 2
 m3 = m ** 3
 m4 = m ** 4
 kN = kilo * N
+t = kN * g
 Pa = 1
 MPa = N / ((mm) ** 2)
 GPa = kilo * MPa
 kPa = kilo * Pa
-g = 9.81
 
 # Carriageway Width limits per IRC 5 Clause 104.3.1
 CARRIAGEWAY_WIDTH_MIN = 4.25  # No median present
@@ -36,7 +37,7 @@ KEY_WEARING_COAT = ['bituminous', 'concrete']
 KEY_CRASH_BARRIER_TYPE = ['Flexible', 'Semi-Rigid', 'Rigid']
 KEY_METALLIC_CRASH_BARRIER_TYPE = ['Single W-beam', 'Double W-beam']
 KEY_RIGID_CRASH_BARRIER_TYPE = ['IRC-5R', 'High Containment']
-KEY_RAILING_TYPE = ['RCC', 'steel']
+KEY_RAILING_TYPE = ['IRC 5 RCC railing', 'IRC 5 steel railing']
 KEY_MEDIAN_TYPE = [
     'Raised Kerb',
     'RCC Crash Barrier',
@@ -57,12 +58,6 @@ FOOTWAY_LOADS = {
 	'Crowded Footway': 500,
 }
 
-KEY_RAILING_TYPE = ['IRC 5 RCC railing','IRC 5 steel railing']
-KEY_CRASH_BARRIER_TYPE = [
-    "Rigid",
-    "Semi-rigid",
-    "Flexible"
-]
 KEY_TERRAIN_TYPE = ['plain','obstructed']
 
 
@@ -114,4 +109,19 @@ MIN_STUD_HEIGHT_FACTOR = 4        # h ≥ 4d
 MAX_STUD_DIAMETER_FACTOR = 2      # d ≤ 2tf
 MIN_EDGE_DISTANCE_MM = 25
 MIN_STUD_HEAD_FACTOR = 1.5
+
+# IS 875 Pt 1 / IRC 6:2017 Cl.203 — material densities (kN/m³) for dead-load calculation.
+DEFAULT_STEEL_DENSITY = 78.5         # structural steel (rolled / welded plate)
+DEFAULT_CONCRETE_DENSITY = 25.0      # reinforced / wet concrete
+DEFAULT_BITUMINOUS_DENSITY = 24.0    # bituminous wearing course
+
+# IRC 6:2017 Cl.204.4 Table 6A — multi-lane live-load reduction factors (1st, 2nd, 3rd+ lanes).
+LANE_REDUCTION_FACTORS = [1.0, 0.8, 0.4]
+
+# IRC 22:2015 Cl.605 Table 3 — partial safety factor for fatigue strength.
+GAMMA_MFT_FATIGUE = 1.35
+
+# Design Capacity Ratio thresholds (PASS < DCR_PASS_THRESHOLD ≤ WARN < DCR_FAIL_THRESHOLD ≤ FAIL).
+DCR_PASS_THRESHOLD = 0.90
+DCR_FAIL_THRESHOLD = 1.00
 
